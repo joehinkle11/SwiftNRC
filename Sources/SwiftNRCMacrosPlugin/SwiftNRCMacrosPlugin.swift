@@ -5,7 +5,47 @@ import SwiftDiagnostics
 
 public struct NRC: MemberMacro {
     public static func expansion(of node: AttributeSyntax, providingMembersOf declaration: some DeclGroupSyntax, in context: some MacroExpansionContext) throws -> [DeclSyntax] {
-        var declarations: [DeclSyntax] = [
+        let declarations: [DeclSyntax] = [
+            """
+            @inline(__always) @_alwaysEmitIntoClient
+            private let pointer: UnsafeMutablePointer<StoredMembers>
+            @inline(__always) @_alwaysEmitIntoClient
+            private static func allocate(_ storedMembers: StoredMembers) -> Self {
+                let pointer = UnsafeMutablePointer<StoredMembers>.allocate(capacity: 1)
+                pointer.initialize(to: storedMembers)
+                #if DEBUG
+                if __debug_enableSwiftNRCZombies {
+                    __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
+                    Self.__debug_swiftNRCZombies[.init(pointer)] = true
+                    __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
+                }
+                #endif
+                return Self(pointer: pointer)
+            }
+            @inline(__always) @_alwaysEmitIntoClient
+            private init(pointer: UnsafeMutablePointer<StoredMembers>) {
+                self.pointer = pointer
+            }
+            @inline(__always) @_alwaysEmitIntoClient
+            private func deallocate() {
+                #if DEBUG
+                if __debug_enableSwiftNRCZombies {
+                    __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
+                    assert(Self.__debug_swiftNRCZombies[self.pointer] == true, "You have already deallocated this NRC object")
+                    Self.__debug_swiftNRCZombies[self.pointer] = false
+                    __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
+                }
+                #endif
+                pointer.deallocate()
+            }
+            #if DEBUG
+            // This is to help catch memory errors in debug builds.
+            /// A dictionary where true mean it exists and false means it has been deallocated
+            private static var __debug_swiftNRCZombies: [UnsafePointer<StoredMembers> : Bool] = [:]
+            /// Ensures only one thread touches `__debug_swiftNRCZombies` as a time.
+            private static var __debug_swiftNRCZombiesLock = __debug_os_unfair_lock()
+            #endif
+            """
         ]
         
         guard let structDecl = declaration.as(StructDeclSyntax.self) else {
@@ -137,37 +177,6 @@ public struct NRC: MemberMacro {
         return [
             """
             private typealias StoredMembers = \(raw: storedMembersTupleType)
-            @inline(__always) @_alwaysEmitIntoClient
-            private let pointer: UnsafeMutablePointer<StoredMembers>
-            @inline(__always) @_alwaysEmitIntoClient
-            private static func allocate(_ storedMembers: StoredMembers) -> Self {
-                let pointer = UnsafeMutablePointer<StoredMembers>.allocate(capacity: 1)
-                pointer.initialize(to: storedMembers)
-                #if DEBUG
-                if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                    Self.__debug_swiftNRCZombies[.init(pointer)] = true
-                    __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
-                }
-                #endif
-                return Self(pointer: pointer)
-            }
-            @inline(__always) @_alwaysEmitIntoClient
-            private init(pointer: UnsafeMutablePointer<StoredMembers>) {
-                self.pointer = pointer
-            }
-            @inline(__always) @_alwaysEmitIntoClient
-            private func deallocate() {
-                #if DEBUG
-                if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                    assert(Self.__debug_swiftNRCZombies[self.pointer] == true, "You have already deallocated this NRC object")
-                    Self.__debug_swiftNRCZombies[self.pointer] = false
-                    __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
-                }
-                #endif
-                pointer.deallocate()
-            }
             \(raw: scopeText)struct ID: Equatable, Hashable {
                 private let pointer: UnsafeMutablePointer<StoredMembers>
                 @inline(__always) @_alwaysEmitIntoClient
@@ -206,15 +215,8 @@ public struct NRC: MemberMacro {
                 __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
                 #endif
             }
-            #if DEBUG
-            // This is to help catch memory errors in debug builds.
-            /// A dictionary where true mean it exists and false means it has been deallocated
-            private static var __debug_swiftNRCZombies: [UnsafePointer<StoredMembers> : Bool] = [:]
-            /// Ensures only one thread touches `__debug_swiftNRCZombies` as a time.
-            private static var __debug_swiftNRCZombiesLock = __debug_os_unfair_lock()
-            #endif
             """,
-        ] + computedProperties
+        ] + computedProperties + declarations
     }
 }
 
