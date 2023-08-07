@@ -5,9 +5,12 @@ import SwiftDiagnostics
 
 public struct NRC: MemberMacro {
     public static func expansion(of node: AttributeSyntax, providingMembersOf declaration: some DeclGroupSyntax, in context: some MacroExpansionContext) throws -> [DeclSyntax] {
+        var declarations: [DeclSyntax] = [
+        ]
+        
         guard let structDecl = declaration.as(StructDeclSyntax.self) else {
             context.diagnose(NRCErrorMessage(id: "nrc_only_struct", message: "Only structs can an NRC (object with no reference count).").diagnose(at: declaration))
-            return []
+            return declarations
         }
         
         // Validate our stored members model only has stored properties
@@ -18,42 +21,39 @@ public struct NRC: MemberMacro {
         case .argumentList(let arguments):
             guard let membersArgument = arguments.first, membersArgument.label?.text == "members" else {
                 context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error expected members").diagnose(at: node))
-                return []
+                return declarations
             }
             for element in membersArgument.expression.cast(DictionaryExprSyntax.self).content.cast(DictionaryElementListSyntax.self) {
                 guard let key = element.key.as(StringLiteralExprSyntax.self)?.segments.trimmedDescription else {
                     context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members keys with string literals").diagnose(at: node))
-                    return []
+                    return declarations
                 }
-                let accessModifier: String
-                let baseAccessModifiers = ["private", "fileprivate", "internal", "public"]
-                let validAccessModifiers = ["private", "fileprivate", "internal", "public"]
                 let accessModifier = validAccessModifiers.first(where: {
                     key.hasPrefix($0)
                 }) ?? ""
                 let varNameWithLetOrVar = String(key.dropFirst(accessModifier.count))
                 let isLet: Bool
-                if key.hasPrefix("let ") {
+                if varNameWithLetOrVar.hasPrefix("let ") {
                     isLet = true
-                } else if key.hasPrefix("var ") {
+                } else if varNameWithLetOrVar.hasPrefix("var ") {
                     isLet = false
                 } else {
-                    context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a name indicating if they are let or a var. i.e. \"let x\"").diagnose(at: node))
-                    return []
+                    context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a name indicating if they are let or a var. i.e. \"let x\". Found \"\(varNameWithLetOrVar)\".").diagnose(at: element.key))
+                    return declarations
                 }
-                let varName = String(key.dropFirst(4))
+                let varName = String(varNameWithLetOrVar.dropFirst(4))
                 guard let value = element.value.as(MemberAccessExprSyntax.self),
                       let typeString = value.base?.trimmedDescription,
                       value.declName.argumentNames == nil,
                       value.declName.baseName.trimmedDescription == "self" else {
                     context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a type reference as i.e. Int.self").diagnose(at: node))
-                    return []
+                    return declarations
                 }
                 allStoredMembersNamesAndTypes.append((name: varName, type: typeString, isLet: isLet, accessModifier: accessModifier))
             }
         default:
             context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error").diagnose(at: node))
-            return []
+            return declarations
         }
         
         // Get scope
@@ -68,8 +68,7 @@ public struct NRC: MemberMacro {
         
         // Make each stored member a computed property
         var computedProperties: [DeclSyntax] = []
-        for (name, type, isLet, isPrivate) in allStoredMembersNamesAndTypes {
-            let scopeText = isPrivate ? "private " : (structIsPublic ? "public " : "")
+        for (name, type, isLet, scopeText) in allStoredMembersNamesAndTypes {
             let dotAccess: String = allStoredMembersNamesAndTypes.count == 1 ? "" : ".\(name)"
             computedProperties.append("""
             @inline(__always)
@@ -101,6 +100,25 @@ public struct NRC: MemberMacro {
             """)
         }
         
+        // Find collisions
+        var foundCollision = false
+        for el1I in allStoredMembersNamesAndTypes.indices {
+            let el1 = allStoredMembersNamesAndTypes[el1I]
+            for el2I in allStoredMembersNamesAndTypes.indices {
+                if el1I == el2I {
+                    continue
+                }
+                let el2 = allStoredMembersNamesAndTypes[el2I]
+                if el1.name == el2.name {
+                    foundCollision = true
+                    context.diagnose(NRCErrorMessage(id: "nrc_collision", message: "Found collision in members names \"\(el1.name)\".").diagnose(at: node))
+                }
+            }
+        }
+        guard !foundCollision else {
+            return declarations
+        }
+        
         // Make the stored members type
         let storedMembersTupleType: String
         if allStoredMembersNamesAndTypes.count == 1, let first = allStoredMembersNamesAndTypes.first {
@@ -115,7 +133,7 @@ public struct NRC: MemberMacro {
         let structName = structDecl.name.trimmed.description
 
         let scopeText = structIsPublic ? "public " : ""
-        
+//        return declarations
         return [
             """
             private typealias StoredMembers = \(raw: storedMembersTupleType)
@@ -198,6 +216,25 @@ public struct NRC: MemberMacro {
             """,
         ] + computedProperties
     }
+}
+
+let baseAccessModifiersWithoutPublic = ["private", "fileprivate", "internal"]
+let baseAccessModifiers: [String] = baseAccessModifiersWithoutPublic + ["public"]
+let validAccessModifiers: [String] = (baseAccessModifiers + {
+    let baseAccessModifiersWithSpace = [""] + baseAccessModifiers.map {$0 + " "}
+    let res: [[String]] = baseAccessModifiersWithSpace.map({ baseAccessModifier in
+        let res = baseAccessModifiersWithoutPublic.map { (baseAccessModifierWithoutPublic: String) in
+            return baseAccessModifier + baseAccessModifierWithoutPublic + "(set)" as String
+        } as [String]
+        return res
+    })
+    return res.reduce([], { (arr: [String], strs: [String]) in
+        return arr + strs
+    }) as [String]
+}()).map { (str: String) in
+    return str + " " as String
+}.sorted { a, b in
+    a.count > b.count
 }
 
 struct NRCErrorMessage: Error, DiagnosticMessage {

@@ -38,8 +38,8 @@ final class SwiftNRCTests: XCTestCase {
 @NRC(
     members: [
         "var y": Int.self,
-        "private var x": Double.self,
-        "internal var z": Bool.self,
+        "fileprivate var x": Double.self,
+        "internal fileprivate(set) var z": Bool.self,
     ]
 )
 struct Example {
