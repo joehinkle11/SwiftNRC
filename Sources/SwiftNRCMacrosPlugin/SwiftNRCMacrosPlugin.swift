@@ -16,7 +16,7 @@ public struct NRC: MemberMacro {
                 #if DEBUG
                 if __debug_enableSwiftNRCZombies {
                     __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                    Self.__debug_swiftNRCZombies[.init(pointer)] = true
+                    Self.__debug_swiftNRCZombies.insert(.init(pointer))
                     __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
                 }
                 #endif
@@ -31,8 +31,8 @@ public struct NRC: MemberMacro {
                 #if DEBUG
                 if __debug_enableSwiftNRCZombies {
                     __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                    assert(Self.__debug_swiftNRCZombies[self.pointer] == true, "You have already deallocated this NRC object")
-                    Self.__debug_swiftNRCZombies[self.pointer] = false
+                    assert(Self.__debug_swiftNRCZombies.contains(self.pointer), "You have already deallocated this NRC object")
+                    Self.__debug_swiftNRCZombies.remove(self.pointer)
                     __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
                 }
                 #endif
@@ -41,7 +41,7 @@ public struct NRC: MemberMacro {
             #if DEBUG
             // This is to help catch memory errors in debug builds.
             /// A dictionary where true mean it exists and false means it has been deallocated
-            private static var __debug_swiftNRCZombies: [UnsafePointer<StoredMembers> : Bool] = [:]
+            private static var __debug_swiftNRCZombies: Set<UnsafePointer<StoredMembers>> = []
             /// Ensures only one thread touches `__debug_swiftNRCZombies` as a time.
             private static var __debug_swiftNRCZombiesLock = __debug_os_unfair_lock()
             #endif
@@ -118,7 +118,7 @@ public struct NRC: MemberMacro {
                     #if DEBUG
                     if __debug_enableSwiftNRCZombies {
                         __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                        assert(Self.__debug_swiftNRCZombies[self.pointer] == true, "Access on deallocated NRC object.")
+                        assert(Self.__debug_swiftNRCZombies.contains(self.pointer), "Access on deallocated NRC object.")
                         __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
                     }
                     #endif
@@ -129,7 +129,7 @@ public struct NRC: MemberMacro {
                     #if DEBUG
                     if __debug_enableSwiftNRCZombies {
                         __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                        assert(Self.__debug_swiftNRCZombies[self.pointer] == true, "Modification on deallocated NRC object.")
+                        assert(Self.__debug_swiftNRCZombies.contains(self.pointer), "Modification on deallocated NRC object.")
                         __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
                     }
                     #endif
@@ -185,7 +185,7 @@ public struct NRC: MemberMacro {
                     #if DEBUG
                     if __debug_enableSwiftNRCZombies {
                         __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                        assert(\(raw: structName).__debug_swiftNRCZombies[self.pointer] == true, "Access on deallocated NRC object.")
+                        assert(\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer), "Access on deallocated NRC object.")
                         __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
                     }
                     #endif
@@ -196,7 +196,7 @@ public struct NRC: MemberMacro {
                     #if DEBUG
                     if __debug_enableSwiftNRCZombies {
                         __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                        assert(\(raw: structName).__debug_swiftNRCZombies[self.pointer] == true, "Access on deallocated NRC object.")
+                        assert(\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer), "Access on deallocated NRC object.")
                         __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
                     }
                     #endif
@@ -211,7 +211,7 @@ public struct NRC: MemberMacro {
             \(raw: scopeText)func assert_does_exist() {
                 #if DEBUG
                 __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                assert(\(raw: structName).__debug_swiftNRCZombies[self.pointer] == true, "Access on deallocated NRC object.")
+                assert(\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer), "Access on deallocated NRC object.")
                 __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
                 #endif
             }
