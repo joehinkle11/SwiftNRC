@@ -204,6 +204,10 @@ public struct NRC: MemberMacro {
                 }
             }
             @inline(__always) @_alwaysEmitIntoClient
+            \(raw: scopeText)init(fromRawPointer rawPointer: UnsafeMutableRawPointer) {
+                self.init(fromPointer: rawPointer.assumingMemoryBound(to: StoredMembers.self))
+            }
+            @inline(__always) @_alwaysEmitIntoClient
             \(raw: scopeText)init(fromPointer pointer: UnsafeMutablePointer<StoredMembers>) {
                 self.pointer = pointer
                 #if DEBUG
