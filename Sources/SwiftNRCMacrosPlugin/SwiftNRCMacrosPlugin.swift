@@ -176,7 +176,7 @@ public struct NRC: MemberMacro {
 
         return [
             """
-            public typealias StoredMembers = \(raw: storedMembersTupleType)
+            \(raw: scopeText)typealias StoredMembers = \(raw: storedMembersTupleType)
             \(raw: scopeText)struct ID: Equatable, Hashable {
                 private let pointer: UnsafeMutablePointer<StoredMembers>?
                 @inline(__always) @_alwaysEmitIntoClient
