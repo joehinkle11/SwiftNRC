@@ -32,6 +32,24 @@ final class SwiftNRCTests: XCTestCase {
         example.delete()
         example2.delete()
     }
+    
+    func testStackAllocated() throws {
+        var example: Example!
+        func scope() {
+            var exampleStorage: Example.StoredMembers = (
+                y: 5,
+                x: 5.3,
+                z: true
+            )
+            example = .init(fromStorage: &exampleStorage)
+            XCTAssertEqual(example.y, 5)
+            example.y = 1
+            XCTAssertEqual(example.y, 1)
+        }
+        scope()
+        // should be junk, because storage got deallocated from stack
+        XCTAssertNotEqual(example.y, 1)
+    }
 }
 
 
