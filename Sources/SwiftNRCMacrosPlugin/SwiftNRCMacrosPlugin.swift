@@ -231,7 +231,6 @@ public struct NRC: MemberMacro {
             }
             @inline(__always) @_alwaysEmitIntoClient
             \(raw: scopeText)mutating func nilOutWithoutDeallocate() {
-                self.pointer = nil
                 #if DEBUG
                 if __debug_enableSwiftNRCZombies {
                     __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
@@ -240,6 +239,7 @@ public struct NRC: MemberMacro {
                     __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
                 }
                 #endif
+                self.pointer = nil
             }
             @inline(__always) @_alwaysEmitIntoClient
             \(raw: scopeText)var id: ID {
