@@ -109,11 +109,9 @@ public struct NRC: MemberMacro {
         
         // Get scope
         var structIsPublic = false
-        if let modifiers = structDecl.modifiers {
-            for modifier in modifiers {
-                if modifier.name.tokenKind == .keyword(.public) {
-                    structIsPublic = true
-                }
+        for modifier in structDecl.modifiers {
+            if modifier.name.tokenKind == .keyword(.public) {
+                structIsPublic = true
             }
         }
         
