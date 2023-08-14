@@ -24,10 +24,24 @@ final class SwiftNRCTests: XCTestCase {
         scoped(example)
         XCTAssertEqual(example.y, 100)
         
-        let example2 = Example()
+        var example2 = Example()
         XCTAssertNotEqual(example.id, example2.id)
         XCTAssertEqual(example.id, example.id)
         XCTAssertEqual(example2.id, example2.id)
+        let oldId = example2.id
+        
+        example2.assert_does_exist()
+        var convertedExample2 = example2.forceAs(to: ExampleJustOneProperty.self)
+        example2.assert_does_not_exist()
+        XCTAssertNotEqual(example.id.hashValue, convertedExample2.id.hashValue)
+        XCTAssertEqual(convertedExample2.id.hashValue, oldId.hashValue)
+        XCTAssertEqual(convertedExample2.y, 5)
+        convertedExample2.y = 111
+        XCTAssertEqual(convertedExample2.y, 111)
+        convertedExample2.assert_does_exist()
+        example2 = convertedExample2.forceAs(to: Example.self)
+        convertedExample2.assert_does_not_exist()
+        XCTAssertEqual(example2.y, 111)
         
         example.delete()
         example2.delete()
@@ -60,7 +74,7 @@ final class SwiftNRCTests: XCTestCase {
         "internal fileprivate(set) var z": Bool.self,
     ]
 )
-struct Example {
+struct Example: SwiftNRCObject {
     
     init() {
         self = Self.allocate((
@@ -77,4 +91,14 @@ struct Example {
     func delete() {
         self.deallocate()
     }
+}
+
+
+@NRC(
+    members: [
+        "var y": Int.self
+    ]
+)
+struct ExampleJustOneProperty: SwiftNRCObject {
+    
 }

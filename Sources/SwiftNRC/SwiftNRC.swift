@@ -9,6 +9,12 @@ public macro NRC(
     type: "NRC"
 )
 
+public protocol SwiftNRCObject {
+    associatedtype StoredMembers
+    init(fromRawPointer rawPointer: UnsafeMutableRawPointer)
+    init(fromPointer pointer: UnsafeMutablePointer<StoredMembers>)
+}
+
 #if DEBUG
 /// Set this to false to improve performance in debug builds
 public var __debug_enableSwiftNRCZombies = true

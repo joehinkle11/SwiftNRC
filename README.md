@@ -17,7 +17,7 @@ The core concept is to just to use Swift macros to prettify the usage of `Unsafe
         "internal var z": Bool.self,
     ]
 )
-struct Example {
+struct Example: SwiftNRCObject {
     
     init() {
         self = Self.allocate((

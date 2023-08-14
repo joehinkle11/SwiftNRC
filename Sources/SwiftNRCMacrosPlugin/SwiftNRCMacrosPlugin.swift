@@ -5,6 +5,20 @@ import SwiftDiagnostics
 
 public struct NRC: MemberMacro {
     public static func expansion(of node: AttributeSyntax, providingMembersOf declaration: some DeclGroupSyntax, in context: some MacroExpansionContext) throws -> [DeclSyntax] {
+        
+        guard let structDecl = declaration.as(StructDeclSyntax.self) else {
+            context.diagnose(NRCErrorMessage(id: "nrc_only_struct", message: "Only structs can an NRC (object with no reference count).").diagnose(at: declaration))
+            return []
+        }
+        
+        // Validate that our struct conforms to SwiftNRCObject
+        guard structDecl.inheritanceClause?.inheritedTypes.contains(where: {
+                $0.type.trimmedDescription == "SwiftNRCObject"
+              }) == true else {
+            context.diagnose(NRCErrorMessage(id: "nrc_only_struct", message: "You must add conformance to SwiftNRCObject.").diagnose(at: declaration))
+            return []
+        }
+        
         let declarations: [DeclSyntax] = [
             """
             @inline(__always) @_alwaysEmitIntoClient
@@ -48,14 +62,9 @@ public struct NRC: MemberMacro {
             """
         ]
         
-        guard let structDecl = declaration.as(StructDeclSyntax.self) else {
-            context.diagnose(NRCErrorMessage(id: "nrc_only_struct", message: "Only structs can an NRC (object with no reference count).").diagnose(at: declaration))
-            return declarations
-        }
-        
         // Validate our stored members model only has stored properties
         // Also make an array of all stored members names
-        var allStoredMembersNamesAndTypes: [(name: String, type: String, isLet: Bool, accessModifier: String)] = []
+        var allStoredMembersNamesAndTypes: [(name: String, type: String, isLet: Bool, accessModifier: String, commentText: String)] = []
         
         switch node.arguments {
         case .argumentList(let arguments):
@@ -64,6 +73,8 @@ public struct NRC: MemberMacro {
                 return declarations
             }
             for element in membersArgument.expression.cast(DictionaryExprSyntax.self).content.cast(DictionaryElementListSyntax.self) {
+                // todo: add comment text
+                var commentText = ""
                 guard let key = element.key.as(StringLiteralExprSyntax.self)?.segments.trimmedDescription else {
                     context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members keys with string literals").diagnose(at: node))
                     return declarations
@@ -89,7 +100,7 @@ public struct NRC: MemberMacro {
                     context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a type reference as i.e. Int.self").diagnose(at: node))
                     return declarations
                 }
-                allStoredMembersNamesAndTypes.append((name: varName, type: typeString, isLet: isLet, accessModifier: accessModifier))
+                allStoredMembersNamesAndTypes.append((name: varName, type: typeString, isLet: isLet, accessModifier: accessModifier, commentText: commentText))
             }
         default:
             context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error").diagnose(at: node))
@@ -108,11 +119,12 @@ public struct NRC: MemberMacro {
         
         // Make each stored member a computed property
         var computedProperties: [DeclSyntax] = []
-        for (name, type, isLet, scopeText) in allStoredMembersNamesAndTypes {
+        for (name, type, isLet, scopeText, commentText) in allStoredMembersNamesAndTypes {
             let dotAccess: String = allStoredMembersNamesAndTypes.count == 1 ? "" : ".\(name)"
             computedProperties.append("""
             @inline(__always)
             @_alwaysEmitIntoClient
+            \(raw: commentText)
             \(raw: scopeText)var \(raw: name): \(raw: type) {
                 get {
                     #if DEBUG
@@ -133,7 +145,7 @@ public struct NRC: MemberMacro {
                         __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
                     }
                     #endif
-                    pointer!.pointee.\(name) = newValue
+                    pointer!.pointee\(dotAccess) = newValue
                 }
             """)
             }
@@ -252,6 +264,24 @@ public struct NRC: MemberMacro {
                 assert(\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
                 __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
                 #endif
+            }
+            @inline(__always) @_alwaysEmitIntoClient
+            \(raw: scopeText)func assert_does_not_exist() {
+                #if DEBUG
+                __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
+                assert(self.pointer == nil || !\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer!), "NRC object still exists.")
+                __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
+                #endif
+            }
+            @inline(__always) @_alwaysEmitIntoClient
+            \(raw: scopeText)mutating func forceAs<T: SwiftNRCObject>(to type: T.Type) -> T {
+                #if DEBUG
+                __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
+                assert(\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
+                __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
+                #endif
+                defer { self.pointer = nil }
+                return T(fromRawPointer: self.pointer!)
             }
             """,
         ] + computedProperties + declarations
