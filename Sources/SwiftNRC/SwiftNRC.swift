@@ -9,10 +9,29 @@ public macro NRC(
     type: "NRC"
 )
 
+@attached(member, names: arbitrary)
+public macro NRC<T: SwiftNRCObject>(
+    members: [String : Any.Type],
+    superNRC: T.Type
+) = #externalMacro(
+    module: "SwiftNRCMacrosPlugin",
+    type: "NRC"
+)
+
 public protocol SwiftNRCObject {
     associatedtype StoredMembers
+    var pointer: UnsafeMutablePointer<StoredMembers>? { get set }
     init(fromRawPointer rawPointer: UnsafeMutableRawPointer)
     init(fromPointer pointer: UnsafeMutablePointer<StoredMembers>)
+}
+
+public struct SwiftNRCObjectID: Equatable, Hashable {
+    @usableFromInline
+    internal let pointer: UnsafeRawPointer
+    @inline(__always) @_alwaysEmitIntoClient
+    public init(_ pointer: UnsafeRawPointer) {
+        self.pointer = pointer
+    }
 }
 
 #if DEBUG

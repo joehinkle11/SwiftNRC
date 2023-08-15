@@ -19,65 +19,31 @@ public struct NRC: MemberMacro {
             return []
         }
         
-        let declarations: [DeclSyntax] = [
-            """
-            @inline(__always) @_alwaysEmitIntoClient
-            private var pointer: UnsafeMutablePointer<StoredMembers>?
-            @inline(__always) @_alwaysEmitIntoClient
-            private static func allocate(_ storedMembers: StoredMembers) -> Self {
-                let pointer = UnsafeMutablePointer<StoredMembers>.allocate(capacity: 1)
-                pointer.initialize(to: storedMembers)
-                #if DEBUG
-                if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                    Self.__debug_swiftNRCZombies.insert(.init(pointer))
-                    __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
-                }
-                #endif
-                return Self(pointer: pointer)
-            }
-            @inline(__always) @_alwaysEmitIntoClient
-            private init(pointer: UnsafeMutablePointer<StoredMembers>) {
-                self.pointer = pointer
-            }
-            @inline(__always) @_alwaysEmitIntoClient
-            private func deallocate() {
-                #if DEBUG
-                if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                    assert(Self.__debug_swiftNRCZombies.contains(self.pointer!), "You have already deallocated this NRC object")
-                    Self.__debug_swiftNRCZombies.remove(self.pointer!)
-                    __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
-                }
-                #endif
-                pointer!.deallocate()
-            }
-            #if DEBUG
-            // This is to help catch memory errors in debug builds.
-            /// A dictionary where true mean it exists and false means it has been deallocated
-            private static var __debug_swiftNRCZombies: Set<UnsafePointer<StoredMembers>> = []
-            /// Ensures only one thread touches `__debug_swiftNRCZombies` as a time.
-            private static var __debug_swiftNRCZombiesLock = __debug_os_unfair_lock()
-            #endif
-            """
-        ]
-        
         // Validate our stored members model only has stored properties
         // Also make an array of all stored members names
         var allStoredMembersNamesAndTypes: [(name: String, type: String, isLet: Bool, accessModifier: String, commentText: String)] = []
         
+        var superNRCName: String? = nil
+        
         switch node.arguments {
         case .argumentList(let arguments):
+            if let superNRC = arguments.dropFirst().first {
+                guard superNRC.label?.text == "superNRC" else {
+                    context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error expected superNRC").diagnose(at: node))
+                    return []
+                }
+                superNRCName = superNRC.expression.cast(MemberAccessExprSyntax.self).base!.cast(DeclReferenceExprSyntax.self).baseName.text
+            }
             guard let membersArgument = arguments.first, membersArgument.label?.text == "members" else {
                 context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error expected members").diagnose(at: node))
-                return declarations
+                return []
             }
             for element in membersArgument.expression.cast(DictionaryExprSyntax.self).content.cast(DictionaryElementListSyntax.self) {
                 // todo: add comment text
                 var commentText = ""
                 guard let key = element.key.as(StringLiteralExprSyntax.self)?.segments.trimmedDescription else {
                     context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members keys with string literals").diagnose(at: node))
-                    return declarations
+                    return []
                 }
                 let accessModifier = validAccessModifiers.first(where: {
                     key.hasPrefix($0)
@@ -90,7 +56,7 @@ public struct NRC: MemberMacro {
                     isLet = false
                 } else {
                     context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a name indicating if they are let or a var. i.e. \"let x\". Found \"\(varNameWithLetOrVar)\".").diagnose(at: element.key))
-                    return declarations
+                    return []
                 }
                 let varName = String(varNameWithLetOrVar.dropFirst(4))
                 guard let value = element.value.as(MemberAccessExprSyntax.self),
@@ -98,13 +64,13 @@ public struct NRC: MemberMacro {
                       value.declName.argumentNames == nil,
                       value.declName.baseName.trimmedDescription == "self" else {
                     context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a type reference as i.e. Int.self").diagnose(at: node))
-                    return declarations
+                    return []
                 }
                 allStoredMembersNamesAndTypes.append((name: varName, type: typeString, isLet: isLet, accessModifier: accessModifier, commentText: commentText))
             }
         default:
             context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error").diagnose(at: node))
-            return declarations
+            return []
         }
         
         // Get scope
@@ -114,6 +80,15 @@ public struct NRC: MemberMacro {
                 structIsPublic = true
             }
         }
+        
+        // Name of the struct
+        let structName = structDecl.name.trimmed.description
+        
+        // If it has a super
+        let hasSuperNRC = superNRCName != nil
+        
+        // Where to increment zombie count
+        let zombieCountTypeContainerName: String = superNRCName ?? structName
         
         // Make each stored member a computed property
         var computedProperties: [DeclSyntax] = []
@@ -127,9 +102,9 @@ public struct NRC: MemberMacro {
                 get {
                     #if DEBUG
                     if __debug_enableSwiftNRCZombies {
-                        __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                        assert(Self.__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
-                        __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
+                        __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                        assert(\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
+                        __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
                     }
                     #endif
                     return pointer!.pointee\(raw: dotAccess)
@@ -138,9 +113,9 @@ public struct NRC: MemberMacro {
                 nonmutating set {
                     #if DEBUG
                     if __debug_enableSwiftNRCZombies {
-                        __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                        assert(Self.__debug_swiftNRCZombies.contains(self.pointer!), "Modification on deallocated NRC object.")
-                        __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
+                        __debug_os_unfair_lock_lock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                        assert(\(zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "Modification on deallocated NRC object.")
+                        __debug_os_unfair_lock_unlock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
                     }
                     #endif
                     pointer!.pointee\(dotAccess) = newValue
@@ -166,7 +141,7 @@ public struct NRC: MemberMacro {
             }
         }
         guard !foundCollision else {
-            return declarations
+            return []
         }
         
         // Make the stored members type
@@ -178,41 +153,12 @@ public struct NRC: MemberMacro {
                 $0.name + ": " + $0.type
             }).joined(separator: ",") + ")"
         }
-         
-        // Name of the struct
-        let structName = structDecl.name.trimmed.description
 
         let scopeText = structIsPublic ? "public " : ""
 
         return [
             """
             \(raw: scopeText)typealias StoredMembers = \(raw: storedMembersTupleType)
-            \(raw: scopeText)struct ID: Equatable, Hashable {
-                private let pointer: UnsafeMutablePointer<StoredMembers>?
-                @inline(__always) @_alwaysEmitIntoClient
-                \(raw: scopeText)init(_ object: \(raw: structName)) {
-                    self.pointer = object.pointer
-                    #if DEBUG
-                    if __debug_enableSwiftNRCZombies {
-                        __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                        assert(\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
-                        __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                    }
-                    #endif
-                }
-                
-                @inline(__always) @_alwaysEmitIntoClient
-                \(raw: scopeText)func uncheckedLoadObject() -> \(raw: structName) {
-                    #if DEBUG
-                    if __debug_enableSwiftNRCZombies {
-                        __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                        assert(\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
-                        __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                    }
-                    #endif
-                    return \(raw: structName)(pointer: self.pointer!)
-                }
-            }
             @inline(__always) @_alwaysEmitIntoClient
             \(raw: scopeText)init(fromRawPointer rawPointer: UnsafeMutableRawPointer) {
                 self.init(fromPointer: rawPointer.assumingMemoryBound(to: StoredMembers.self))
@@ -220,69 +166,84 @@ public struct NRC: MemberMacro {
             @inline(__always) @_alwaysEmitIntoClient
             \(raw: scopeText)init(fromPointer pointer: UnsafeMutablePointer<StoredMembers>) {
                 self.pointer = pointer
-                #if DEBUG
-                if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                    Self.__debug_swiftNRCZombies.insert(.init(pointer))
-                    __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
-                }
-                #endif
             }
             @inline(__always) @_alwaysEmitIntoClient
             \(raw: scopeText)init(fromStorage storage: inout StoredMembers) {
                 self.pointer = .init(&storage)
-                #if DEBUG
-                if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                    Self.__debug_swiftNRCZombies.insert(.init(pointer!))
-                    __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
-                }
-                #endif
             }
             @inline(__always) @_alwaysEmitIntoClient
             \(raw: scopeText)mutating func nilOutWithoutDeallocate() {
-                #if DEBUG
-                if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&Self.__debug_swiftNRCZombiesLock)
-                    assert(Self.__debug_swiftNRCZombies.contains(self.pointer!), "You have already deallocated this NRC object")
-                    Self.__debug_swiftNRCZombies.remove(self.pointer!)
-                    __debug_os_unfair_lock_unlock(&Self.__debug_swiftNRCZombiesLock)
-                }
-                #endif
                 self.pointer = nil
             }
             @inline(__always) @_alwaysEmitIntoClient
-            \(raw: scopeText)var id: ID {
-                return ID(self)
+            \(raw: scopeText)var id: SwiftNRCObjectID {
+                return SwiftNRCObjectID(.init(self.pointer!))
             }
             @inline(__always) @_alwaysEmitIntoClient
             \(raw: scopeText)func assert_does_exist() {
                 #if DEBUG
-                __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                assert(\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
-                __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
+                __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                assert(\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
+                __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
                 #endif
             }
             @inline(__always) @_alwaysEmitIntoClient
             \(raw: scopeText)func assert_does_not_exist() {
                 #if DEBUG
-                __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                assert(self.pointer == nil || !\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer!), "NRC object still exists.")
-                __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
+                __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                assert(self.pointer == nil || !\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "NRC object still exists.")
+                __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
                 #endif
             }
             @inline(__always) @_alwaysEmitIntoClient
-            \(raw: scopeText)mutating func forceAs<T: SwiftNRCObject>(to type: T.Type) -> T {
+            public var pointer: UnsafeMutablePointer<StoredMembers>?
+            @inline(__always) @_alwaysEmitIntoClient
+            private static func allocate(_ storedMembers: StoredMembers) -> Self {
+                let pointer = UnsafeMutablePointer<StoredMembers>.allocate(capacity: 1)
+                pointer.initialize(to: storedMembers)
                 #if DEBUG
-                __debug_os_unfair_lock_lock(&\(raw: structName).__debug_swiftNRCZombiesLock)
-                assert(\(raw: structName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
-                __debug_os_unfair_lock_unlock(&\(raw: structName).__debug_swiftNRCZombiesLock)
+                if __debug_enableSwiftNRCZombies {
+                    __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    \(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.insert(.init(pointer))
+                    __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                }
                 #endif
-                defer { self.pointer = nil }
-                return T(fromRawPointer: self.pointer!)
+                return Self(pointer: pointer)
             }
+            @inline(__always) @_alwaysEmitIntoClient
+            private init(pointer: UnsafeMutablePointer<StoredMembers>) {
+                self.pointer = pointer
+            }
+            @inline(__always) @_alwaysEmitIntoClient
+            private func deallocate() {
+                #if DEBUG
+                if __debug_enableSwiftNRCZombies {
+                    __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    assert(\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(.init(self.pointer!)), "You have already deallocated this NRC object")
+                    \(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.remove(.init(self.pointer!))
+                    __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                }
+                #endif
+                pointer!.deallocate()
+            }
+            \(raw: hasSuperNRC ? """
+            @inline(__always) @_alwaysEmitIntoClient
+            \(scopeText)mutating func upcast() -> \(zombieCountTypeContainerName) {
+                return \(zombieCountTypeContainerName)(fromRawPointer: .init(self.pointer!))
+            }
+            \(scopeText)init(downcastFrom superNRC: \(zombieCountTypeContainerName)) {
+                self.init(fromRawPointer: .init(superNRC.pointer!))
+            }
+            """: """
+            #if DEBUG
+            /// This is to help catch memory errors in debug builds.
+            \(scopeText) static var __debug_swiftNRCZombies: Set<UnsafeRawPointer> = []
+            /// Ensures only one thread touches `__debug_swiftNRCZombies` as a time.
+            \(scopeText) static var __debug_swiftNRCZombiesLock = __debug_os_unfair_lock()
+            #endif
+            """)
             """,
-        ] + computedProperties + declarations
+        ] + computedProperties
     }
 }
 

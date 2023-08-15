@@ -18,8 +18,6 @@ final class SwiftNRCTests: XCTestCase {
         func scoped(_ copiedRef: Example) {
             copiedRef.y = 100
         }
-        let id: Example.ID = example.id
-        XCTAssertEqual(id.uncheckedLoadObject().y, 5)
         XCTAssertEqual(example.y, 5)
         scoped(example)
         XCTAssertEqual(example.y, 100)
@@ -31,7 +29,7 @@ final class SwiftNRCTests: XCTestCase {
         let oldId = example2.id
         
         example2.assert_does_exist()
-        var convertedExample2 = example2.forceAs(to: ExampleJustOneProperty.self)
+        var convertedExample2 = ExampleJustOneProperty(downcastFrom: example2)
         example2.assert_does_not_exist()
         XCTAssertNotEqual(example.id.hashValue, convertedExample2.id.hashValue)
         XCTAssertEqual(convertedExample2.id.hashValue, oldId.hashValue)
@@ -39,7 +37,7 @@ final class SwiftNRCTests: XCTestCase {
         convertedExample2.y = 111
         XCTAssertEqual(convertedExample2.y, 111)
         convertedExample2.assert_does_exist()
-        example2 = convertedExample2.forceAs(to: Example.self)
+        example2 = convertedExample2.upcast()
         convertedExample2.assert_does_not_exist()
         XCTAssertEqual(example2.y, 111)
         
@@ -97,7 +95,8 @@ struct Example: SwiftNRCObject {
 @NRC(
     members: [
         "var y": Int.self
-    ]
+    ],
+    superNRC: Example.self
 )
 struct ExampleJustOneProperty: SwiftNRCObject {
     
