@@ -203,6 +203,13 @@ public struct NRC: MemberMacro {
             @inline(__always) @_alwaysEmitIntoClient
             private func deallocate() {
                 self.assert_does_exist()
+                #if DEBUG
+                if __debug_enableSwiftNRCZombies {
+                    __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    \(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.remove(.init(self.pointer!))
+                    __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                }
+                #endif
                 pointer!.deallocate()
             }
             \(raw: hasSuperNRC ? """
