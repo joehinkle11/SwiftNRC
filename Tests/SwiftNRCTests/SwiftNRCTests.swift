@@ -30,7 +30,7 @@ final class SwiftNRCTests: XCTestCase {
         
         example2.assert_does_exist()
         var convertedExample2 = ExampleJustOneProperty(downcastFrom: example2)
-        example2.assert_does_not_exist()
+        example2.assert_does_exist()
         XCTAssertNotEqual(example.id.hashValue, convertedExample2.id.hashValue)
         XCTAssertEqual(convertedExample2.id.hashValue, oldId.hashValue)
         XCTAssertEqual(convertedExample2.y, 5)
@@ -38,11 +38,12 @@ final class SwiftNRCTests: XCTestCase {
         XCTAssertEqual(convertedExample2.y, 111)
         convertedExample2.assert_does_exist()
         example2 = convertedExample2.upcast()
-        convertedExample2.assert_does_not_exist()
+        convertedExample2.assert_does_exist()
         XCTAssertEqual(example2.y, 111)
         
         example.delete()
         example2.delete()
+        convertedExample2.assert_does_not_exist()
     }
     
     func testStackAllocated() throws {

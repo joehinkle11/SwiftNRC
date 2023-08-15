@@ -100,24 +100,10 @@ public struct NRC: MemberMacro {
             \(raw: commentText)
             \(raw: scopeText)var \(raw: name): \(raw: type) {
                 get {
-                    #if DEBUG
-                    if __debug_enableSwiftNRCZombies {
-                        __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                        assert(\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
-                        __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                    }
-                    #endif
                     return pointer!.pointee\(raw: dotAccess)
                 }
             \(raw: isLet ? "" : """
                 nonmutating set {
-                    #if DEBUG
-                    if __debug_enableSwiftNRCZombies {
-                        __debug_os_unfair_lock_lock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                        assert(\(zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "Modification on deallocated NRC object.")
-                        __debug_os_unfair_lock_unlock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                    }
-                    #endif
                     pointer!.pointee\(dotAccess) = newValue
                 }
             """)
@@ -216,14 +202,7 @@ public struct NRC: MemberMacro {
             }
             @inline(__always) @_alwaysEmitIntoClient
             private func deallocate() {
-                #if DEBUG
-                if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                    assert(\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(.init(self.pointer!)), "You have already deallocated this NRC object")
-                    \(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.remove(.init(self.pointer!))
-                    __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                }
-                #endif
+                self.assert_does_exist()
                 pointer!.deallocate()
             }
             \(raw: hasSuperNRC ? """
