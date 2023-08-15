@@ -3,6 +3,7 @@ import XCTest
 
 final class SwiftNRCTests: XCTestCase {
     func testExample() throws {
+        XCTAssertEqual(Example.__debug_swiftNRCZombies.count, 0)
 
         let example = Example()
         XCTAssertEqual(example.x, 4.3)
@@ -44,6 +45,8 @@ final class SwiftNRCTests: XCTestCase {
         example.delete()
         example2.delete()
         convertedExample2.assert_does_not_exist()
+        
+        XCTAssertEqual(Example.__debug_swiftNRCZombies.count, 0)
     }
     
     func testStackAllocated() throws {
