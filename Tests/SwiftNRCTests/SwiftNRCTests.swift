@@ -15,6 +15,10 @@ final class SwiftNRCTests: XCTestCase {
         XCTAssertEqual(example.z, true)
         example.flipZ()
         XCTAssertEqual(example.z, false)
+        XCTAssertEqual(example.constant, "can't change me!")
+//        example.constant = "changed!" // this is a compile-time error
+        example._force_set_constant(to: "changed!") // we can override it this way
+        XCTAssertEqual(example.constant, "changed!")
         
         func scoped(_ copiedRef: Example) {
             copiedRef.y = 100
@@ -55,9 +59,11 @@ final class SwiftNRCTests: XCTestCase {
             var exampleStorage: Example.StoredMembers = (
                 y: 5,
                 x: 5.3,
-                z: true
+                z: true,
+                constant: "the constant"
             )
             example = .init(fromStorage: &exampleStorage)
+            XCTAssertEqual(example.constant, "the constant")
             XCTAssertEqual(example.y, 5)
             example.y = 1
             XCTAssertEqual(example.y, 1)
@@ -74,6 +80,7 @@ final class SwiftNRCTests: XCTestCase {
         "var y": Int.self,
         "fileprivate var x": Double.self,
         "internal fileprivate(set) var z": Bool.self,
+        "let constant": String.self
     ]
 )
 struct Example: SwiftNRCObject {
@@ -82,7 +89,8 @@ struct Example: SwiftNRCObject {
         self = Self.allocate((
             y: 5,
             x: 4.3,
-            z: true
+            z: true,
+            constant: "can't change me!"
         ))
     }
     

@@ -108,6 +108,14 @@ public struct NRC: MemberMacro {
                 }
             """)
             }
+            \(raw: isLet ? """
+            @inline(__always)
+            @_alwaysEmitIntoClient
+            /// \(name) is a let property. You can force set \(name) with this method.
+            \(scopeText)func _force_set_\(name)(to newValue: \(type)) {
+                pointer!.pointee\(dotAccess) = newValue
+            }
+            """ : "")
             """)
         }
         
