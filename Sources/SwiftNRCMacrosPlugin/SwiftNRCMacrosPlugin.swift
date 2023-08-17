@@ -214,7 +214,7 @@ public struct NRC: MemberMacro {
             }
             \(raw: hasSuperNRC ? """
             @inline(__always) @_alwaysEmitIntoClient
-            \(scopeText)mutating func upcast() -> \(zombieCountTypeContainerName) {
+            \(scopeText)func upcast() -> \(zombieCountTypeContainerName) {
                 return \(zombieCountTypeContainerName)(fromRawPointer: .init(self.pointer!))
             }
             \(scopeText)init(downcastFrom superNRC: \(zombieCountTypeContainerName)) {
