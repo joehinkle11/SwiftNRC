@@ -13,7 +13,7 @@ The core concept is to just to use Swift macros to prettify the usage of `Unsafe
     dependencies: [
         .package(
             url: "https://github.com/joehinkle11/SwiftNRC",
-            branch: "main"),
+            .upToNextMajor(from: "1.0.0")),
     ],
     targets: [
         .target(
