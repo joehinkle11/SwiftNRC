@@ -6,6 +6,22 @@ This is an experimental idea to provide objects in Swift without having the over
 
 The core concept is to just to use Swift macros to prettify the usage of `UnsafeMutablePointer` and `UnsafeMutableRawPointer` to create a simple object system.
 
+## Setup
+
+```swift
+    
+    dependencies: [
+        .package(
+            url: "https://github.com/joehinkle11/SwiftNRC",
+            branch: "main"),
+    ],
+    targets: [
+        .target(
+            name: "YourTarget",
+            plugins: ["SwiftNRC"]
+        ),
+    ]
+```
 
 ## Examples
 
@@ -50,7 +66,50 @@ scoped(example)
 XCTAssertEqual(example.y, 100)
 ```
 
+## Static Array Support
+
+You can also now allocate a static array between/amoungst other properties in your object like in a c struct:
+
+```swift
+@NRC(
+    members: [
+        "let before" : String.self,
+        "var myArray": NRCStaticArray(Int.self, 10),
+        "let after" : String.self,
+    ]
+)
+struct ExampleStaticArray: SwiftNRCObject {
+    
+    init?(_ numbers: Int...) {
+        guard numbers.count == Self.myArrayCount else {
+            return nil
+        }
+        self = .allocate()
+        self._force_set_before(to: "before string")
+        for (i, number) in numbers.enumerated() {
+            self.myArray[i] = number
+        }
+        self._force_set_after(to: "after string")
+    }
+    func delete() {
+        self.deallocate()
+    }
+    
+}
+
+func arrayUsage() {
+    let exampleStaticArray = ExampleStaticArray(9, 8, 7, 6, 5, 4, 3, 2, 1, 0)!
+    for i in 0..<10 {
+        XCTAssertEqual(exampleStaticArray.myArray[i], 9 - i)
+        exampleStaticArray.myArray[i] = i
+    }
+    let pointerToFirstElement = exampleStaticArray.myArrayPointer
+}
+```
+
+All static array values (and properties for that matter) will be contiguous in memory. This means that you can pass a pointer to the first element of the array to a c function and it will be able to read all the values in the array.
 
 ## Use Cases
 
 Uses these non-reference counted objects is more performant than traditional classes in Swift. In a performance critical application, this objects of this sort can help reduce the overhead associated with ARC.
+

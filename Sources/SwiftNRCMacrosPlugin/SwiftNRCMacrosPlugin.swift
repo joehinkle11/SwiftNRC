@@ -21,7 +21,7 @@ public struct NRC: MemberMacro {
         
         // Validate our stored members model only has stored properties
         // Also make an array of all stored members names
-        var allStoredMembersNamesAndTypes: [(name: String, type: String, isLet: Bool, accessModifier: String, commentText: String)] = []
+        var allStoredMembersNamesAndTypes: [(name: String, type: String, isLet: Bool, accessModifier: String, commentText: String, isArrayWithCount: Int?)] = []
         
         var superNRCName: String? = nil
         
@@ -29,20 +29,20 @@ public struct NRC: MemberMacro {
         case .argumentList(let arguments):
             if let superNRC = arguments.dropFirst().first {
                 guard superNRC.label?.text == "superNRC" else {
-                    context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error expected superNRC").diagnose(at: node))
+                    context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error expected superNRC").diagnose(at: superNRC))
                     return []
                 }
                 superNRCName = superNRC.expression.cast(MemberAccessExprSyntax.self).base!.cast(DeclReferenceExprSyntax.self).baseName.text
             }
             guard let membersArgument = arguments.first, membersArgument.label?.text == "members" else {
-                context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error expected members").diagnose(at: node))
+                context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error expected members").diagnose(at: arguments))
                 return []
             }
             for element in membersArgument.expression.cast(DictionaryExprSyntax.self).content.cast(DictionaryElementListSyntax.self) {
                 // todo: add comment text
                 var commentText = ""
                 guard let key = element.key.as(StringLiteralExprSyntax.self)?.segments.trimmedDescription else {
-                    context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members keys with string literals").diagnose(at: node))
+                    context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members keys with string literals").diagnose(at: element.key))
                     return []
                 }
                 let accessModifier = validAccessModifiers.first(where: {
@@ -59,14 +59,37 @@ public struct NRC: MemberMacro {
                     return []
                 }
                 let varName = String(varNameWithLetOrVar.dropFirst(4))
-                guard let value = element.value.as(MemberAccessExprSyntax.self),
+                if let value = element.value.as(MemberAccessExprSyntax.self),
                       let typeString = value.base?.trimmedDescription,
                       value.declName.argumentNames == nil,
-                      value.declName.baseName.trimmedDescription == "self" else {
-                    context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a type reference as i.e. Int.self").diagnose(at: node))
+                   value.declName.baseName.trimmedDescription == "self" {
+                    allStoredMembersNamesAndTypes.append((name: varName, type: typeString, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: nil))
+                } else if let funcCall = element.value.as(FunctionCallExprSyntax.self),
+                            let calledExpression = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
+                          calledExpression.baseName.text == "NRCStaticArray" {
+                    guard funcCall.arguments.count == 2,
+                          let typeToArrayify = funcCall.arguments.first,
+                          let numberOfElements = funcCall.arguments.last else {
+                        context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires 2 arguments.").diagnose(at: funcCall))
+                        return []
+                    }
+                    guard let value = typeToArrayify.expression.as(MemberAccessExprSyntax.self),
+                          let typeString = value.base?.trimmedDescription,
+                          value.declName.argumentNames == nil,
+                       value.declName.baseName.trimmedDescription == "self" else {
+                        context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires a type reference as its first argument.").diagnose(at: typeToArrayify))
+                        return []
+                    }
+                    guard let numberOfElementsInt = numberOfElements.expression.as(IntegerLiteralExprSyntax.self),
+                          let numberOfElementsIntValue = Int(numberOfElementsInt.literal.text) else {
+                        context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires an integer literal as its second argument.").diagnose(at: numberOfElements))
+                        return []
+                    }
+                    allStoredMembersNamesAndTypes.append((name: varName, type: typeString, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: numberOfElementsIntValue))
+                } else {
+                    context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a type reference as i.e. Int.self").diagnose(at: element.value))
                     return []
                 }
-                allStoredMembersNamesAndTypes.append((name: varName, type: typeString, isLet: isLet, accessModifier: accessModifier, commentText: commentText))
             }
         default:
             context.diagnose(NRCErrorMessage(id: "fatal", message: "macro fatal error").diagnose(at: node))
@@ -92,31 +115,61 @@ public struct NRC: MemberMacro {
         
         // Make each stored member a computed property
         var computedProperties: [DeclSyntax] = []
-        for (name, type, isLet, scopeText, commentText) in allStoredMembersNamesAndTypes {
-            let dotAccess: String = allStoredMembersNamesAndTypes.count == 1 ? "" : ".\(name)"
-            computedProperties.append("""
-            @inline(__always)
-            @_alwaysEmitIntoClient
-            \(raw: commentText)
-            \(raw: scopeText)var \(raw: name): \(raw: type) {
-                get {
-                    return pointer!.pointee\(raw: dotAccess)
+        for (name, type, isLet, scopeText, commentText, isArrayWithCount) in allStoredMembersNamesAndTypes {
+            // Arrays get different methods
+            if let arrayCount = isArrayWithCount {
+                computedProperties.append("""
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                /// \(raw: name) is a static array with \(raw: arrayCount) elements. You can access a pointer to the array's first element with this property.
+                \(raw: scopeText)var \(raw: name)Pointer: UnsafeMutablePointer<\(raw: type)> {
+                    return UnsafeMutableRawPointer(mutating: self.pointer!.pointer(to: \\.\(raw: name)))!.assumingMemoryBound(to: \(raw: type).self)
                 }
-            \(raw: isLet ? "" : """
-                nonmutating set {
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                /// \(raw: name) is a static array with \(raw: arrayCount) elements. You can access an element's pointer at a specific index with this method.
+                \(raw: scopeText)func \(raw: name)Pointer(at index: Int) -> UnsafeMutablePointer<\(raw: type)> {
+                    return self.\(raw: name)Pointer.advanced(by: index)
+                }
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                /// \(raw: name) is a static array with \(raw: arrayCount) elements. You can access the array through this property.
+                \(raw: scopeText)var \(raw: name): NRCStaticArray<\(raw: type)> {
+                    return .createForSwiftNRCObject(self, \\.\(raw: name)Pointer)
+                }
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                /// The amount of elements in \(raw: name) (which is a static array with \(raw: arrayCount) elements).
+                \(raw: scopeText)static var \(raw: name)Count: Int {
+                    return \(raw: arrayCount)
+                }
+                """)
+            } else {
+                let dotAccess: String = allStoredMembersNamesAndTypes.count == 1 ? "" : ".\(name)"
+                computedProperties.append("""
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                \(raw: commentText)
+                \(raw: scopeText)var \(raw: name): \(raw: type) {
+                    get {
+                        return pointer!.pointee\(raw: dotAccess)
+                    }
+                \(raw: isLet ? "" : """
+                    nonmutating set {
+                        pointer!.pointee\(dotAccess) = newValue
+                    }
+                """)
+                }
+                \(raw: isLet ? """
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                /// \(name) is a let property. You can force set \(name) with this method.
+                \(scopeText)func _force_set_\(name)(to newValue: \(type)) {
                     pointer!.pointee\(dotAccess) = newValue
                 }
-            """)
+                """ : "")
+                """)
             }
-            \(raw: isLet ? """
-            @inline(__always)
-            @_alwaysEmitIntoClient
-            /// \(name) is a let property. You can force set \(name) with this method.
-            \(scopeText)func _force_set_\(name)(to newValue: \(type)) {
-                pointer!.pointee\(dotAccess) = newValue
-            }
-            """ : "")
-            """)
         }
         
         // Find collisions
@@ -139,14 +192,29 @@ public struct NRC: MemberMacro {
         }
         
         // Make the stored members type
-        let storedMembersTupleType: String
-        if allStoredMembersNamesAndTypes.count == 1, let first = allStoredMembersNamesAndTypes.first {
-            storedMembersTupleType = first.type
-        } else {
-            storedMembersTupleType = "(" + allStoredMembersNamesAndTypes.map({
-                $0.name + ": " + $0.type
-            }).joined(separator: ",") + ")"
+        var storedMembersTupleType: String = "("
+        for (i, allStoredMembersNamesAndType) in allStoredMembersNamesAndTypes.enumerated() {
+            if i != 0 {
+                storedMembersTupleType += ", "
+            }
+            if let count = allStoredMembersNamesAndType.isArrayWithCount {
+                for j in 0..<count {
+                    if j == 0 {
+                        storedMembersTupleType += allStoredMembersNamesAndType.name + ": " 
+                    } else {
+                        storedMembersTupleType += ", "
+                    }
+                    storedMembersTupleType += allStoredMembersNamesAndType.type
+                }
+            } else {
+                if allStoredMembersNamesAndTypes.count == 1 {
+                    storedMembersTupleType += allStoredMembersNamesAndType.type
+                } else {
+                    storedMembersTupleType += allStoredMembersNamesAndType.name + ": " + allStoredMembersNamesAndType.type
+                }
+            }
         }
+        storedMembersTupleType += ")"
 
         let scopeText = structIsPublic ? "public " : ""
 
@@ -191,6 +259,18 @@ public struct NRC: MemberMacro {
             }
             @inline(__always) @_alwaysEmitIntoClient
             public var pointer: UnsafeMutablePointer<StoredMembers>?
+            @inline(__always) @_alwaysEmitIntoClient
+            private static func allocate() -> Self {
+                let pointer = UnsafeMutablePointer<StoredMembers>.allocate(capacity: 1)
+                #if DEBUG
+                if __debug_enableSwiftNRCZombies {
+                    __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    \(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.insert(.init(pointer))
+                    __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                }
+                #endif
+                return Self(pointer: pointer)
+            }
             @inline(__always) @_alwaysEmitIntoClient
             private static func allocate(_ storedMembers: StoredMembers) -> Self {
                 let pointer = UnsafeMutablePointer<StoredMembers>.allocate(capacity: 1)

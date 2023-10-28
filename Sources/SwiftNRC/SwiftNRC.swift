@@ -3,7 +3,7 @@ import Foundation
 
 @attached(member, names: arbitrary)
 public macro NRC(
-    members: [String : Any.Type]
+    members: [String : Any]
 ) = #externalMacro(
     module: "SwiftNRCMacrosPlugin",
     type: "NRC"
@@ -11,7 +11,7 @@ public macro NRC(
 
 @attached(member, names: arbitrary)
 public macro NRC<T: SwiftNRCObject>(
-    members: [String : Any.Type],
+    members: [String : Any],
     superNRC: T.Type
 ) = #externalMacro(
     module: "SwiftNRCMacrosPlugin",
@@ -31,6 +31,41 @@ public struct SwiftNRCObjectID: Equatable, Hashable {
     @inline(__always) @_alwaysEmitIntoClient
     public init(_ pointer: UnsafeRawPointer) {
         self.pointer = pointer
+    }
+}
+
+
+public struct NRCStaticArray<Element> {
+    @_alwaysEmitIntoClient
+    @inline(__always)
+    private var _storage: UnsafeMutablePointer<Element>
+    
+    public init?(_ t: Element.Type, _ count: Int) { assertionFailure(); return nil}
+    
+    @_alwaysEmitIntoClient
+    @inline(__always)
+    private init(_storage: UnsafeMutablePointer<Element>) {
+        self._storage = _storage
+    }
+    
+    @_alwaysEmitIntoClient
+    @inline(__always)
+    public static func createForSwiftNRCObject<T: SwiftNRCObject>(
+        _ obj: T,
+        _ keyPath: KeyPath<T, UnsafeMutablePointer<Element>>
+    ) -> NRCStaticArray<Element> {
+        return .init(_storage: obj[keyPath: keyPath])
+    }
+    
+    @_alwaysEmitIntoClient
+    @inline(__always)
+    public subscript(index: Int) -> Element {
+        get {
+            return self._storage.advanced(by: index).pointee
+        }
+        nonmutating set(newValue) {
+            self._storage.advanced(by: index).pointee = newValue
+        }
     }
 }
 

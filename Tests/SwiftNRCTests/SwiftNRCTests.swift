@@ -34,7 +34,7 @@ final class SwiftNRCTests: XCTestCase {
         let oldId = example2.id
         
         example2.assert_does_exist()
-        var convertedExample2 = ExampleJustOneProperty(downcastFrom: example2)
+        let convertedExample2 = ExampleJustOneProperty(downcastFrom: example2)
         example2.assert_does_exist()
         XCTAssertNotEqual(example.id.hashValue, convertedExample2.id.hashValue)
         XCTAssertEqual(convertedExample2.id.hashValue, oldId.hashValue)
@@ -51,6 +51,35 @@ final class SwiftNRCTests: XCTestCase {
         convertedExample2.assert_does_not_exist()
         
         XCTAssertEqual(Example.__debug_swiftNRCZombies.count, 0)
+        
+        XCTAssertEqual(ExampleStaticArray.__debug_swiftNRCZombies.count, 0)
+        XCTAssertNil(ExampleStaticArray())
+        XCTAssertNil(ExampleStaticArray(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
+        guard let exampleStaticArray = ExampleStaticArray(9, 8, 7, 6, 5, 4, 3, 2, 1, 0) else {
+            return XCTFail()
+        }
+        let expectedSize = 2 * 8 + // first string
+            10 * 8 + // array
+            2 * 8 // last string
+        let actualSize = MemoryLayout<String>.size +
+            MemoryLayout<Int>.size * ExampleStaticArray.myArrayCount +
+            MemoryLayout<String>.size
+        XCTAssertEqual(actualSize, expectedSize)
+        XCTAssertEqual(exampleStaticArray.before, "before string")
+        XCTAssertEqual(exampleStaticArray.after, "after string")
+        for i in 0..<10 {
+            XCTAssertEqual(exampleStaticArray.myArray[i], 9 - i)
+            exampleStaticArray.myArray[i] = i
+        }
+        XCTAssertEqual(exampleStaticArray.before, "before string")
+        XCTAssertEqual(exampleStaticArray.after, "after string")
+        for i in 0..<10 {
+            XCTAssertEqual(exampleStaticArray.myArray[i], i)
+        }
+        XCTAssertEqual(exampleStaticArray.myArrayPointer, exampleStaticArray.myArrayPointer(at: 0))
+        exampleStaticArray.delete()
+        
+        XCTAssertEqual(ExampleStaticArray.__debug_swiftNRCZombies.count, 0)
     }
     
     func testStackAllocated() throws {
@@ -111,5 +140,32 @@ struct Example: SwiftNRCObject {
     superNRC: Example.self
 )
 struct ExampleJustOneProperty: SwiftNRCObject {
+    
+}
+
+
+@NRC(
+    members: [
+        "let before" : String.self,
+        "var myArray": NRCStaticArray(Int.self, 10),
+        "let after" : String.self,
+    ]
+)
+struct ExampleStaticArray: SwiftNRCObject {
+    
+    init?(_ numbers: Int...) {
+        guard numbers.count == Self.myArrayCount else {
+            return nil
+        }
+        self = .allocate()
+        self._force_set_before(to: "before string")
+        for (i, number) in numbers.enumerated() {
+            self.myArray[i] = number
+        }
+        self._force_set_after(to: "after string")
+    }
+    func delete() {
+        self.deallocate()
+    }
     
 }
