@@ -68,7 +68,7 @@ XCTAssertEqual(example.y, 100)
 
 ## Static Array Support
 
-You can also now allocate a static array between/amoungst other properties in your object like in a c struct:
+You can also now allocate a static array between/among other properties in your object like in a c struct:
 
 ```swift
 @NRC(
