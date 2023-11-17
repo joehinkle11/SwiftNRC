@@ -9,6 +9,14 @@ public macro Prop(
     type: "Prop"
 )
 
+@attached(accessor, names: overloaded, suffixed(Pointer))
+public macro AltView(
+    startOffset offset: Int
+) = #externalMacro(
+    module: "SwiftNRCMacrosPlugin",
+    type: "AltView"
+)
+
 @attached(member, names: arbitrary)
 public macro NRC(
     members: [String : Any]

@@ -19,11 +19,20 @@ public struct Prop: AccessorMacro {
             context.diagnose(NRCErrorMessage(id: "prop_one_argument", message: "Prop requires exactly one argument.").diagnose(at: node))
             return []
         }
-        guard let atOffset = arguments.first?.expression.as(IntegerLiteralExprSyntax.self)?.literal else {
-            context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
-            return []
-        }
-        guard let offset: Int = Int(atOffset.trimmedDescription) else {
+        let offset: Int
+        if let atOffset = arguments.first?.expression.as(IntegerLiteralExprSyntax.self)?.literal {
+            guard let theOffset: Int = Int(atOffset.trimmedDescription) else {
+                context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
+                return []
+            }
+            offset = theOffset
+        } else if let negativeOffset = arguments.first?.expression.as(PrefixOperatorExprSyntax.self)?.expression.as(IntegerLiteralExprSyntax.self)?.literal {
+            guard let theOffset: Int = Int(negativeOffset.trimmedDescription) else {
+                context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
+                return []
+            }
+            offset = -theOffset
+        } else {
             context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
             return []
         }
@@ -35,6 +44,49 @@ public struct Prop: AccessorMacro {
             }
             nonmutating set {
                 storage.advanced(by: \(offset)).assumingMemoryBound(to: \(type.trimmedDescription).self).pointee = newValue
+            }
+            """
+        ]
+    }
+}
+
+public struct AltView: AccessorMacro {
+    public static func expansion(of node: AttributeSyntax, providingAccessorsOf declaration: some DeclSyntaxProtocol, in context: some MacroExpansionContext) throws -> [AccessorDeclSyntax] {
+        // Extract the argument `startOffset` from `node`
+        guard case let .argumentList(arguments) = node.arguments else {
+            context.diagnose(NRCErrorMessage(id: "altview_no_arguments", message: "AltView requires an argument list.").diagnose(at: node))
+            return []
+        }
+        guard let type = declaration.as(VariableDeclSyntax.self)?.bindings.first?.typeAnnotation?.type else {
+            context.diagnose(NRCErrorMessage(id: "altview_only_variables", message: "AltView can only be applied to variables.").diagnose(at: declaration))
+            return []
+        }
+        guard arguments.count == 1 else {
+            context.diagnose(NRCErrorMessage(id: "altview_one_argument", message: "AltView requires exactly one argument.").diagnose(at: node))
+            return []
+        }
+        let offset: Int
+        if let atOffset = arguments.first?.expression.as(IntegerLiteralExprSyntax.self)?.literal {
+            guard let theOffset: Int = Int(atOffset.trimmedDescription) else {
+                context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
+                return []
+            }
+            offset = theOffset
+        } else if let negativeOffset = arguments.first?.expression.as(PrefixOperatorExprSyntax.self)?.expression.as(IntegerLiteralExprSyntax.self)?.literal {
+            guard let theOffset: Int = Int(negativeOffset.trimmedDescription) else {
+                context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
+                return []
+            }
+            offset = -theOffset
+        } else {
+            context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
+            return []
+        }
+        
+        return [
+            """
+            get {
+                unsafeBitCast(Int(bitPattern: storage.advanced(by: \(offset))), to: \(type.trimmedDescription).self)
             }
             """
         ]
@@ -412,6 +464,7 @@ struct SwiftNRCMacrosPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
         NRC.self,
         Prop.self,
+        AltView.self,
     ]
 }
 #endif

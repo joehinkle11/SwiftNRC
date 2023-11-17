@@ -102,11 +102,23 @@ final class SwiftNRCTests: XCTestCase {
         XCTAssertNotEqual(example.y, 1)
     }
     func testExampleFakeProperty() {
-        let example = ExampleFakeProperty()
-        example.ok = 5
-        XCTAssertEqual(example.ok, 5)
-        example.ok = -5
-        XCTAssertEqual(example.ok, -5)
+        let example = ExampleFakeProperties()
+        example.propA = 5
+        example.propB = 10.05
+        XCTAssertEqual(example.propA, 5)
+        XCTAssertEqual(example.anotherView.propA, 5)
+        XCTAssertEqual(example.anotherView.backToParent.propA, 5)
+        XCTAssertEqual(example.propB, 10.05)
+        XCTAssertEqual(example.anotherView.propB, 10.05)
+        XCTAssertEqual(example.anotherView.backToParent.propB, 10.05)
+        example.anotherView.propA = -5
+        example.anotherView.propB = -510.0
+        XCTAssertEqual(example.propA, -5)
+        XCTAssertEqual(example.anotherView.propA, -5)
+        XCTAssertEqual(example.anotherView.backToParent.propA, -5)
+        XCTAssertEqual(example.propB, -510.0)
+        XCTAssertEqual(example.anotherView.propB, -510.0)
+        XCTAssertEqual(example.anotherView.backToParent.propB, -510.0)
     }
 }
 
@@ -178,13 +190,31 @@ struct ExampleStaticArray: SwiftNRCObject {
 }
 
 
-struct ExampleFakeProperty {
+struct ExampleFakeProperties {
     private let storage: UnsafeMutableRawPointer
     
     @Prop(atOffset: 0)
-    var ok: Int
+    var propA: Int
+    
+    @Prop(atOffset: 8)
+    var propB: Double
+    
+    @AltView(startOffset: 8)
+    var anotherView: ExampleFakeProperty
 
     init() {
         self.storage = .allocate(byteCount: 16, alignment: 8)
     }
+}
+struct ExampleFakeProperty {
+    private let storage: UnsafeMutableRawPointer
+    
+    @Prop(atOffset: 0)
+    var propB: Double
+    
+    @Prop(atOffset: -8)
+    var propA: Int
+    
+    @AltView(startOffset: -8)
+    var backToParent: ExampleFakeProperties
 }
