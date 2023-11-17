@@ -1,6 +1,14 @@
 
 import Foundation
 
+@attached(accessor, names: overloaded, suffixed(Pointer))
+public macro Prop(
+    atOffset offset: Int
+) = #externalMacro(
+    module: "SwiftNRCMacrosPlugin",
+    type: "Prop"
+)
+
 @attached(member, names: arbitrary)
 public macro NRC(
     members: [String : Any]

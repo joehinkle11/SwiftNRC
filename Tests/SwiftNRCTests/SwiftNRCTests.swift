@@ -101,6 +101,13 @@ final class SwiftNRCTests: XCTestCase {
         // should be junk, because storage got deallocated from stack
         XCTAssertNotEqual(example.y, 1)
     }
+    func testExampleFakeProperty() {
+        let example = ExampleFakeProperty()
+        example.ok = 5
+        XCTAssertEqual(example.ok, 5)
+        example.ok = -5
+        XCTAssertEqual(example.ok, -5)
+    }
 }
 
 
@@ -168,4 +175,16 @@ struct ExampleStaticArray: SwiftNRCObject {
         self.deallocate()
     }
     
+}
+
+
+struct ExampleFakeProperty {
+    private let storage: UnsafeMutableRawPointer
+    
+    @Prop(atOffset: 0)
+    var ok: Int
+
+    init() {
+        self.storage = .allocate(byteCount: 16, alignment: 8)
+    }
 }

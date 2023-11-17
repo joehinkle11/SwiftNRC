@@ -2,6 +2,44 @@ import Foundation
 import SwiftSyntax
 import SwiftSyntaxMacros
 import SwiftDiagnostics
+import SwiftSyntaxBuilder
+
+public struct Prop: AccessorMacro {
+    public static func expansion(of node: AttributeSyntax, providingAccessorsOf declaration: some DeclSyntaxProtocol, in context: some MacroExpansionContext) throws -> [AccessorDeclSyntax] {
+        // Extract the argument `atOffset` from `node`
+        guard case let .argumentList(arguments) = node.arguments else {
+            context.diagnose(NRCErrorMessage(id: "prop_no_arguments", message: "Prop requires an argument list.").diagnose(at: node))
+            return []
+        }
+        guard let type = declaration.as(VariableDeclSyntax.self)?.bindings.first?.typeAnnotation?.type else {
+            context.diagnose(NRCErrorMessage(id: "prop_only_variables", message: "Prop can only be applied to variables.").diagnose(at: declaration))
+            return []
+        }
+        guard arguments.count == 1 else {
+            context.diagnose(NRCErrorMessage(id: "prop_one_argument", message: "Prop requires exactly one argument.").diagnose(at: node))
+            return []
+        }
+        guard let atOffset = arguments.first?.expression.as(IntegerLiteralExprSyntax.self)?.literal else {
+            context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
+            return []
+        }
+        guard let offset: Int = Int(atOffset.trimmedDescription) else {
+            context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
+            return []
+        }
+        
+        return [
+            """
+            get {
+                storage.advanced(by: \(offset)).assumingMemoryBound(to: \(type.trimmedDescription).self).pointee
+            }
+            nonmutating set {
+                storage.advanced(by: \(offset)).assumingMemoryBound(to: \(type.trimmedDescription).self).pointee = newValue
+            }
+            """
+        ]
+    }
+}
 
 public struct NRC: MemberMacro {
     public static func expansion(of node: AttributeSyntax, providingMembersOf declaration: some DeclGroupSyntax, in context: some MacroExpansionContext) throws -> [DeclSyntax] {
@@ -121,27 +159,27 @@ public struct NRC: MemberMacro {
                 computedProperties.append("""
                 @inline(__always)
                 @_alwaysEmitIntoClient
-                /// \(raw: name) is a static array with \(raw: arrayCount) elements. You can access a pointer to the array's first element with this property.
-                \(raw: scopeText)var \(raw: name)Pointer: UnsafeMutablePointer<\(raw: type)> {
-                    return UnsafeMutableRawPointer(mutating: self.pointer!.pointer(to: \\.\(raw: name)))!.assumingMemoryBound(to: \(raw: type).self)
+                /// \(name) is a static array with \(arrayCount) elements. You can access a pointer to the array's first element with this property.
+                \(scopeText)var \(name)Pointer: UnsafeMutablePointer<\(type)> {
+                    return UnsafeMutableRawPointer(mutating: self.pointer!.pointer(to: \\.\(name)))!.assumingMemoryBound(to: \(type).self)
                 }
                 @inline(__always)
                 @_alwaysEmitIntoClient
-                /// \(raw: name) is a static array with \(raw: arrayCount) elements. You can access an element's pointer at a specific index with this method.
-                \(raw: scopeText)func \(raw: name)Pointer(at index: Int) -> UnsafeMutablePointer<\(raw: type)> {
-                    return self.\(raw: name)Pointer.advanced(by: index)
+                /// \(name) is a static array with \(arrayCount) elements. You can access an element's pointer at a specific index with this method.
+                \(scopeText)func \(name)Pointer(at index: Int) -> UnsafeMutablePointer<\(type)> {
+                    return self.\(name)Pointer.advanced(by: index)
                 }
                 @inline(__always)
                 @_alwaysEmitIntoClient
-                /// \(raw: name) is a static array with \(raw: arrayCount) elements. You can access the array through this property.
-                \(raw: scopeText)var \(raw: name): NRCStaticArray<\(raw: type)> {
-                    return .createForSwiftNRCObject(self, \\.\(raw: name)Pointer)
+                /// \(name) is a static array with \(arrayCount) elements. You can access the array through this property.
+                \(scopeText)var \(name): NRCStaticArray<\(type)> {
+                    return .createForSwiftNRCObject(self, \\.\(name)Pointer)
                 }
                 @inline(__always)
                 @_alwaysEmitIntoClient
-                /// The amount of elements in \(raw: name) (which is a static array with \(raw: arrayCount) elements).
-                \(raw: scopeText)static var \(raw: name)Count: Int {
-                    return \(raw: arrayCount)
+                /// The amount of elements in \(name) (which is a static array with \(arrayCount) elements).
+                \(scopeText)static var \(name)Count: Int {
+                    return \(arrayCount)
                 }
                 """)
             } else {
@@ -149,18 +187,18 @@ public struct NRC: MemberMacro {
                 computedProperties.append("""
                 @inline(__always)
                 @_alwaysEmitIntoClient
-                \(raw: commentText)
-                \(raw: scopeText)var \(raw: name): \(raw: type) {
+                \(commentText)
+                \(scopeText)var \(name): \(type) {
                     get {
-                        return pointer!.pointee\(raw: dotAccess)
+                        return pointer!.pointee\(dotAccess)
                     }
-                \(raw: isLet ? "" : """
+                \(isLet ? "" : """
                     nonmutating set {
                         pointer!.pointee\(dotAccess) = newValue
                     }
                 """)
                 }
-                \(raw: isLet ? """
+                \(isLet ? """
                 @inline(__always)
                 @_alwaysEmitIntoClient
                 /// \(name) is a let property. You can force set \(name) with this method.
@@ -220,41 +258,41 @@ public struct NRC: MemberMacro {
 
         return [
             """
-            \(raw: scopeText)typealias StoredMembers = \(raw: storedMembersTupleType)
+            \(scopeText)typealias StoredMembers = \(storedMembersTupleType)
             @inline(__always) @_alwaysEmitIntoClient
-            \(raw: scopeText)init(fromRawPointer rawPointer: UnsafeMutableRawPointer) {
+            \(scopeText)init(fromRawPointer rawPointer: UnsafeMutableRawPointer) {
                 self.init(fromPointer: rawPointer.assumingMemoryBound(to: StoredMembers.self))
             }
             @inline(__always) @_alwaysEmitIntoClient
-            \(raw: scopeText)init(fromPointer pointer: UnsafeMutablePointer<StoredMembers>) {
+            \(scopeText)init(fromPointer pointer: UnsafeMutablePointer<StoredMembers>) {
                 self.pointer = pointer
             }
             @inline(__always) @_alwaysEmitIntoClient
-            \(raw: scopeText)init(fromStorage storage: inout StoredMembers) {
+            \(scopeText)init(fromStorage storage: inout StoredMembers) {
                 self.pointer = .init(&storage)
             }
             @inline(__always) @_alwaysEmitIntoClient
-            \(raw: scopeText)mutating func nilOutWithoutDeallocate() {
+            \(scopeText)mutating func nilOutWithoutDeallocate() {
                 self.pointer = nil
             }
             @inline(__always) @_alwaysEmitIntoClient
-            \(raw: scopeText)var id: SwiftNRCObjectID {
+            \(scopeText)var id: SwiftNRCObjectID {
                 return SwiftNRCObjectID(.init(self.pointer!))
             }
             @inline(__always) @_alwaysEmitIntoClient
-            \(raw: scopeText)func assert_does_exist() {
+            \(scopeText)func assert_does_exist() {
                 #if DEBUG
-                __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                assert(\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
-                __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                __debug_os_unfair_lock_lock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                assert(\(zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "Access on deallocated NRC object.")
+                __debug_os_unfair_lock_unlock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
                 #endif
             }
             @inline(__always) @_alwaysEmitIntoClient
-            \(raw: scopeText)func assert_does_not_exist() {
+            \(scopeText)func assert_does_not_exist() {
                 #if DEBUG
-                __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                assert(self.pointer == nil || !\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "NRC object still exists.")
-                __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                __debug_os_unfair_lock_lock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                assert(self.pointer == nil || !\(zombieCountTypeContainerName).__debug_swiftNRCZombies.contains(self.pointer!), "NRC object still exists.")
+                __debug_os_unfair_lock_unlock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
                 #endif
             }
             @inline(__always) @_alwaysEmitIntoClient
@@ -264,9 +302,9 @@ public struct NRC: MemberMacro {
                 let pointer = UnsafeMutablePointer<StoredMembers>.allocate(capacity: 1)
                 #if DEBUG
                 if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                    \(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.insert(.init(pointer))
-                    __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    __debug_os_unfair_lock_lock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    \(zombieCountTypeContainerName).__debug_swiftNRCZombies.insert(.init(pointer))
+                    __debug_os_unfair_lock_unlock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
                 }
                 #endif
                 return Self(pointer: pointer)
@@ -277,9 +315,9 @@ public struct NRC: MemberMacro {
                 pointer.initialize(to: storedMembers)
                 #if DEBUG
                 if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                    \(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.insert(.init(pointer))
-                    __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    __debug_os_unfair_lock_lock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    \(zombieCountTypeContainerName).__debug_swiftNRCZombies.insert(.init(pointer))
+                    __debug_os_unfair_lock_unlock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
                 }
                 #endif
                 return Self(pointer: pointer)
@@ -293,14 +331,14 @@ public struct NRC: MemberMacro {
                 self.assert_does_exist()
                 #if DEBUG
                 if __debug_enableSwiftNRCZombies {
-                    __debug_os_unfair_lock_lock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
-                    \(raw: zombieCountTypeContainerName).__debug_swiftNRCZombies.remove(.init(self.pointer!))
-                    __debug_os_unfair_lock_unlock(&\(raw: zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    __debug_os_unfair_lock_lock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
+                    \(zombieCountTypeContainerName).__debug_swiftNRCZombies.remove(.init(self.pointer!))
+                    __debug_os_unfair_lock_unlock(&\(zombieCountTypeContainerName).__debug_swiftNRCZombiesLock)
                 }
                 #endif
                 pointer!.deallocate()
             }
-            \(raw: hasSuperNRC ? """
+            \(hasSuperNRC ? """
             @inline(__always) @_alwaysEmitIntoClient
             \(scopeText)func upcast() -> \(zombieCountTypeContainerName) {
                 return \(zombieCountTypeContainerName)(fromRawPointer: .init(self.pointer!))
@@ -357,6 +395,13 @@ struct NRCErrorMessage: Error, DiagnosticMessage {
     let message: String
 }
 
+extension SyntaxStringInterpolation {
+    
+    mutating func appendInterpolation<T>(_ value: T) {
+        self.appendInterpolation(raw: value)
+    }
+}
+
 #if canImport(SwiftCompilerPlugin)
 import SwiftCompilerPlugin
 import SwiftSyntaxMacros
@@ -366,6 +411,7 @@ struct SwiftNRCMacrosPlugin: CompilerPlugin {
     
     let providingMacros: [Macro.Type] = [
         NRC.self,
+        Prop.self,
     ]
 }
 #endif
