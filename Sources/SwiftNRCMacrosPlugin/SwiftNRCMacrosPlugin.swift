@@ -19,19 +19,9 @@ public struct Prop: AccessorMacro {
             context.diagnose(NRCErrorMessage(id: "prop_one_argument", message: "Prop requires exactly one argument.").diagnose(at: node))
             return []
         }
-        let offset: Int
-        if let atOffset = arguments.first?.expression.as(IntegerLiteralExprSyntax.self)?.literal {
-            guard let theOffset: Int = Int(atOffset.trimmedDescription) else {
-                context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
-                return []
-            }
-            offset = theOffset
-        } else if let negativeOffset = arguments.first?.expression.as(PrefixOperatorExprSyntax.self)?.expression.as(IntegerLiteralExprSyntax.self)?.literal {
-            guard let theOffset: Int = Int(negativeOffset.trimmedDescription) else {
-                context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
-                return []
-            }
-            offset = -theOffset
+        let offsetCode: String
+        if let atOffset = arguments.first?.expression {
+            offsetCode = atOffset.description
         } else {
             context.diagnose(NRCErrorMessage(id: "prop_integer_argument", message: "Prop requires an integer argument.").diagnose(at: node))
             return []
@@ -40,10 +30,10 @@ public struct Prop: AccessorMacro {
         return [
             """
             get {
-                storage.advanced(by: \(offset)).assumingMemoryBound(to: \(type.trimmedDescription).self).pointee
+                storage.advanced(by: \(offsetCode)).assumingMemoryBound(to: \(type.trimmedDescription).self).pointee
             }
             nonmutating set {
-                storage.advanced(by: \(offset)).assumingMemoryBound(to: \(type.trimmedDescription).self).pointee = newValue
+                storage.advanced(by: \(offsetCode)).assumingMemoryBound(to: \(type.trimmedDescription).self).pointee = newValue
             }
             """
         ]

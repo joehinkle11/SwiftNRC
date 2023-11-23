@@ -115,6 +115,7 @@ final class SwiftNRCTests: XCTestCase {
         example.anotherView.propB = -510.0
         XCTAssertEqual(example.propA, -5)
         XCTAssertEqual(example.anotherView.propA, -5)
+        XCTAssertEqual(example.anotherView.propUsingOffsetVar, -5)
         XCTAssertEqual(example.anotherView.backToParent.propA, -5)
         XCTAssertEqual(example.propB, -510.0)
         XCTAssertEqual(example.anotherView.propB, -510.0)
@@ -206,6 +207,8 @@ struct ExampleFakeProperties {
         self.storage = .allocate(byteCount: 16, alignment: 8)
     }
 }
+
+private let constantWithValue8 = 8
 struct ExampleFakeProperty {
     private let storage: UnsafeMutableRawPointer
     
@@ -214,6 +217,9 @@ struct ExampleFakeProperty {
     
     @Prop(atOffset: -8)
     var propA: Int
+    
+    @Prop(atOffset: -constantWithValue8)
+    var propUsingOffsetVar: Int
     
     @AltView(startOffset: -8)
     var backToParent: ExampleFakeProperties
