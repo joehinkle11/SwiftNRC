@@ -85,11 +85,11 @@ struct ExampleStaticArray: SwiftNRCObject {
             return nil
         }
         self = .allocate()
-        self._force_set_before(to: "before string")
+        self.initialize_before(to: "before string")
         for (i, number) in numbers.enumerated() {
-            self.myArray[i] = number
+            self.myArray.initialize(index: i, to: number)
         }
-        self._force_set_after(to: "after string")
+        self.initialize_after(to: "after string")
     }
     func delete() {
         self.deallocate()

@@ -83,6 +83,12 @@ public struct NRCStaticArray<Element> {
             self._storage.advanced(by: index).pointee = newValue
         }
     }
+    
+    @_alwaysEmitIntoClient
+    @inline(__always)
+    public func initialize(index: Int, to startingValue: Element) {
+        self._storage.advanced(by: index).initialize(to: startingValue)
+    }
 }
 
 #if DEBUG

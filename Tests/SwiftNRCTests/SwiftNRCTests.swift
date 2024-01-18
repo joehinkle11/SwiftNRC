@@ -17,8 +17,7 @@ final class SwiftNRCTests: XCTestCase {
         XCTAssertEqual(example.z, false)
         XCTAssertEqual(example.constant, "can't change me!")
 //        example.constant = "changed!" // this is a compile-time error
-        example._force_set_constant(to: "changed!") // we can override it this way
-        XCTAssertEqual(example.constant, "changed!")
+        XCTAssertEqual(example.constant, "can't change me!")
         
         func scoped(_ copiedRef: Example) {
             copiedRef.y = 100
@@ -178,11 +177,11 @@ struct ExampleStaticArray: SwiftNRCObject {
             return nil
         }
         self = .allocate()
-        self._force_set_before(to: "before string")
+        self.initialize_before(to: "before string")
         for (i, number) in numbers.enumerated() {
-            self.myArray[i] = number
+            self.myArray.initialize(index: i, to: number)
         }
-        self._force_set_after(to: "after string")
+        self.initialize_after(to: "after string")
     }
     func delete() {
         self.deallocate()
