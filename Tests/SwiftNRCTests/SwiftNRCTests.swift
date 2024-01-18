@@ -81,25 +81,6 @@ final class SwiftNRCTests: XCTestCase {
         XCTAssertEqual(ExampleStaticArray.__debug_swiftNRCZombies.count, 0)
     }
     
-    func testStackAllocated() throws {
-        var example: Example!
-        func scope() {
-            var exampleStorage: Example.StoredMembers = (
-                y: 5,
-                x: 5.3,
-                z: true,
-                constant: "the constant"
-            )
-            example = .init(fromStorage: &exampleStorage)
-            XCTAssertEqual(example.constant, "the constant")
-            XCTAssertEqual(example.y, 5)
-            example.y = 1
-            XCTAssertEqual(example.y, 1)
-        }
-        scope()
-        // should be junk, because storage got deallocated from stack
-        XCTAssertNotEqual(example.y, 1)
-    }
     func testExampleFakeProperty() {
         let example = ExampleFakeProperties()
         example.propA = 5
@@ -128,7 +109,8 @@ final class SwiftNRCTests: XCTestCase {
         "var y": Int.self,
         "fileprivate var x": Double.self,
         "internal fileprivate(set) var z": Bool.self,
-        "let constant": String.self
+        "let constant": String.self,
+        "let closure" : (() -> Void).self
     ]
 )
 struct Example: SwiftNRCObject {
@@ -138,7 +120,8 @@ struct Example: SwiftNRCObject {
             y: 5,
             x: 4.3,
             z: true,
-            constant: "can't change me!"
+            constant: "can't change me!",
+            closure: {}
         ))
     }
     

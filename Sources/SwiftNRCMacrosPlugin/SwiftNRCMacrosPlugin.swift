@@ -101,7 +101,7 @@ public struct NRC: MemberMacro {
         
         // Validate our stored members model only has stored properties
         // Also make an array of all stored members names
-        var allStoredMembersNamesAndTypes: [(name: String, type: String, isLet: Bool, accessModifier: String, commentText: String, isArrayWithCount: Int?)] = []
+        var allStoredMembersNamesAndTypes: [(name: String, type: String, typeIsClosure: Bool, isLet: Bool, accessModifier: String, commentText: String, isArrayWithCount: Int?)] = []
         
         var superNRCName: String? = nil
         
@@ -140,10 +140,12 @@ public struct NRC: MemberMacro {
                 }
                 let varName = String(varNameWithLetOrVar.dropFirst(4))
                 if let value = element.value.as(MemberAccessExprSyntax.self),
-                      let typeString = value.base?.trimmedDescription,
+                    let typeBase = value.base,
                       value.declName.argumentNames == nil,
                    value.declName.baseName.trimmedDescription == "self" {
-                    allStoredMembersNamesAndTypes.append((name: varName, type: typeString, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: nil))
+                    let typeString = typeBase.trimmedDescription
+                    let typeIsClosure = typeBase.typeIsClosure
+                    allStoredMembersNamesAndTypes.append((name: varName, type: typeString, typeIsClosure: typeIsClosure, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: nil))
                 } else if let funcCall = element.value.as(FunctionCallExprSyntax.self),
                             let calledExpression = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
                           calledExpression.baseName.text == "NRCStaticArray" {
@@ -154,18 +156,20 @@ public struct NRC: MemberMacro {
                         return []
                     }
                     guard let value = typeToArrayify.expression.as(MemberAccessExprSyntax.self),
-                          let typeString = value.base?.trimmedDescription,
+                          let typeBase = value.base,
                           value.declName.argumentNames == nil,
                        value.declName.baseName.trimmedDescription == "self" else {
                         context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires a type reference as its first argument.").diagnose(at: typeToArrayify))
                         return []
                     }
+                    let typeString = typeBase.trimmedDescription
+                    let typeIsClosure = typeBase.typeIsClosure
                     guard let numberOfElementsInt = numberOfElements.expression.as(IntegerLiteralExprSyntax.self),
                           let numberOfElementsIntValue = Int(numberOfElementsInt.literal.text) else {
                         context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires an integer literal as its second argument.").diagnose(at: numberOfElements))
                         return []
                     }
-                    allStoredMembersNamesAndTypes.append((name: varName, type: typeString, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: numberOfElementsIntValue))
+                    allStoredMembersNamesAndTypes.append((name: varName, type: typeString, typeIsClosure: typeIsClosure, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: numberOfElementsIntValue))
                 } else {
                     context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a type reference as i.e. Int.self").diagnose(at: element.value))
                     return []
@@ -195,7 +199,7 @@ public struct NRC: MemberMacro {
         
         // Make each stored member a computed property
         var computedProperties: [DeclSyntax] = []
-        for (name, type, isLet, scopeText, commentText, isArrayWithCount) in allStoredMembersNamesAndTypes {
+        for (name, type, typeIsClosure, isLet, scopeText, commentText, isArrayWithCount) in allStoredMembersNamesAndTypes {
             // Arrays get different methods
             if let arrayCount = isArrayWithCount {
                 computedProperties.append("""
@@ -225,6 +229,12 @@ public struct NRC: MemberMacro {
                 }
                 """)
             } else {
+                let typeWithEscapingIfNeeded: String
+                if typeIsClosure {
+                    typeWithEscapingIfNeeded = "@escaping \(type)"
+                } else {
+                    typeWithEscapingIfNeeded = type
+                }
                 let dotAccess: String = allStoredMembersNamesAndTypes.count == 1 ? "" : ".\(name)"
                 computedProperties.append("""
                 @inline(__always)
@@ -243,7 +253,7 @@ public struct NRC: MemberMacro {
                 @inline(__always)
                 @_alwaysEmitIntoClient
                 /// Initialize \(name). Should be called exactly once for \(name) unless you initialized it in the Self.allocate(...) function.
-                private func initialize_\(name)(to startingValue: \(type)) {
+                private func initialize_\(name)(to startingValue: \(typeWithEscapingIfNeeded)) {
                     pointer\(dotAccess == "" ? "" : "!.pointer(to: \\\(dotAccess))")!.initialize(to: startingValue)
                 }
                 """)
@@ -306,10 +316,6 @@ public struct NRC: MemberMacro {
             @inline(__always) @_alwaysEmitIntoClient
             \(scopeText)init(fromPointer pointer: UnsafeMutablePointer<StoredMembers>) {
                 self.pointer = pointer
-            }
-            @inline(__always) @_alwaysEmitIntoClient
-            \(scopeText)init(fromStorage storage: inout StoredMembers) {
-                self.pointer = .init(&storage)
             }
             @inline(__always) @_alwaysEmitIntoClient
             \(scopeText)mutating func nilOutWithoutDeallocate() {
@@ -456,3 +462,13 @@ struct SwiftNRCMacrosPlugin: CompilerPlugin {
     ]
 }
 #endif
+
+
+extension ExprSyntax {
+    var typeIsClosure: Bool {
+        if let tuple = self.as(TupleExprSyntax.self), tuple.elements.count == 1, let el = tuple.elements.first, let infixOp = el.expression.as(InfixOperatorExprSyntax.self) {
+            return infixOp.operator.is(ArrowExprSyntax.self)
+        }
+        return false
+    }
+}
