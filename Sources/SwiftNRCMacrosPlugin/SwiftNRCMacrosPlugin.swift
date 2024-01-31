@@ -101,7 +101,7 @@ public struct NRC: MemberMacro {
         
         // Validate our stored members model only has stored properties
         // Also make an array of all stored members names
-        var allStoredMembersNamesAndTypes: [(name: String, type: String, typeIsClosure: Bool, isLet: Bool, accessModifier: String, commentText: String, isArrayWithCount: Int?)] = []
+        var allStoredMembersNamesAndTypes: [(name: String, type: String, typeIsClosure: Bool, isLet: Bool, accessModifier: String, commentText: String, isArrayWithCount: Int?, isStackWithCapacity: Int?)] = []
         
         var superNRCName: String? = nil
         
@@ -145,31 +145,57 @@ public struct NRC: MemberMacro {
                    value.declName.baseName.trimmedDescription == "self" {
                     let typeString = typeBase.trimmedDescription
                     let typeIsClosure = typeBase.typeIsClosure
-                    allStoredMembersNamesAndTypes.append((name: varName, type: typeString, typeIsClosure: typeIsClosure, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: nil))
+                    allStoredMembersNamesAndTypes.append((name: varName, type: typeString, typeIsClosure: typeIsClosure, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: nil, isStackWithCapacity: nil))
                 } else if let funcCall = element.value.as(FunctionCallExprSyntax.self),
-                            let calledExpression = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
-                          calledExpression.baseName.text == "NRCStaticArray" {
-                    guard funcCall.arguments.count == 2,
-                          let typeToArrayify = funcCall.arguments.first,
-                          let numberOfElements = funcCall.arguments.last else {
-                        context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires 2 arguments.").diagnose(at: funcCall))
+                            let calledExpression = funcCall.calledExpression.as(DeclReferenceExprSyntax.self) {
+                    if calledExpression.baseName.text == "NRCStaticArray" {
+                        guard funcCall.arguments.count == 2,
+                              let typeToArrayify = funcCall.arguments.first,
+                              let numberOfElements = funcCall.arguments.last else {
+                            context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires 2 arguments.").diagnose(at: funcCall))
+                            return []
+                        }
+                        guard let value = typeToArrayify.expression.as(MemberAccessExprSyntax.self),
+                              let typeBase = value.base,
+                              value.declName.argumentNames == nil,
+                              value.declName.baseName.trimmedDescription == "self" else {
+                            context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires a type reference as its first argument.").diagnose(at: typeToArrayify))
+                            return []
+                        }
+                        let typeString = typeBase.trimmedDescription
+                        let typeIsClosure = typeBase.typeIsClosure
+                        guard let numberOfElementsInt = numberOfElements.expression.as(IntegerLiteralExprSyntax.self),
+                              let numberOfElementsIntValue = Int(numberOfElementsInt.literal.text) else {
+                            context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires an integer literal as its second argument.").diagnose(at: numberOfElements))
+                            return []
+                        }
+                        allStoredMembersNamesAndTypes.append((name: varName, type: typeString, typeIsClosure: typeIsClosure, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: numberOfElementsIntValue, isStackWithCapacity: nil))
+                    } else if calledExpression.baseName.text == "NRCStaticStack" {
+                        guard funcCall.arguments.count == 2,
+                              let typeToArrayify = funcCall.arguments.first,
+                              let numberOfElements = funcCall.arguments.last else {
+                            context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticStack requires 2 arguments.").diagnose(at: funcCall))
+                            return []
+                        }
+                        guard let value = typeToArrayify.expression.as(MemberAccessExprSyntax.self),
+                              let typeBase = value.base,
+                              value.declName.argumentNames == nil,
+                              value.declName.baseName.trimmedDescription == "self" else {
+                            context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticStack requires a type reference as its first argument.").diagnose(at: typeToArrayify))
+                            return []
+                        }
+                        let typeString = typeBase.trimmedDescription
+                        let typeIsClosure = typeBase.typeIsClosure
+                        guard let numberOfElementsInt = numberOfElements.expression.as(IntegerLiteralExprSyntax.self),
+                              let numberOfElementsIntValue = Int(numberOfElementsInt.literal.text) else {
+                            context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticStack requires an integer literal as its second argument.").diagnose(at: numberOfElements))
+                            return []
+                        }
+                        allStoredMembersNamesAndTypes.append((name: varName, type: typeString, typeIsClosure: typeIsClosure, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: nil, isStackWithCapacity: numberOfElementsIntValue))
+                    } else {
+                        context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a type reference as i.e. Int.self").diagnose(at: element.value))
                         return []
                     }
-                    guard let value = typeToArrayify.expression.as(MemberAccessExprSyntax.self),
-                          let typeBase = value.base,
-                          value.declName.argumentNames == nil,
-                       value.declName.baseName.trimmedDescription == "self" else {
-                        context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires a type reference as its first argument.").diagnose(at: typeToArrayify))
-                        return []
-                    }
-                    let typeString = typeBase.trimmedDescription
-                    let typeIsClosure = typeBase.typeIsClosure
-                    guard let numberOfElementsInt = numberOfElements.expression.as(IntegerLiteralExprSyntax.self),
-                          let numberOfElementsIntValue = Int(numberOfElementsInt.literal.text) else {
-                        context.diagnose(NRCErrorMessage(id: "fatal", message: "NRCStaticArray requires an integer literal as its second argument.").diagnose(at: numberOfElements))
-                        return []
-                    }
-                    allStoredMembersNamesAndTypes.append((name: varName, type: typeString, typeIsClosure: typeIsClosure, isLet: isLet, accessModifier: accessModifier, commentText: commentText, isArrayWithCount: numberOfElementsIntValue))
                 } else {
                     context.diagnose(NRCErrorMessage(id: "fatal", message: "You must defined members value with a type reference as i.e. Int.self").diagnose(at: element.value))
                     return []
@@ -199,9 +225,38 @@ public struct NRC: MemberMacro {
         
         // Make each stored member a computed property
         var computedProperties: [DeclSyntax] = []
-        for (name, type, typeIsClosure, isLet, scopeText, commentText, isArrayWithCount) in allStoredMembersNamesAndTypes {
-            // Arrays get different methods
-            if let arrayCount = isArrayWithCount {
+        for (name, type, typeIsClosure, isLet, scopeText, commentText, isArrayWithCount, isStackWithCapacity) in allStoredMembersNamesAndTypes {
+            if let stackCapacity = isStackWithCapacity {
+                // Stacks get different methods
+                computedProperties.append("""
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                /// \(name) is a static stack with \(stackCapacity) capacity. The layout is an Int for the count and then each element.
+                \(scopeText)var \(name)Pointer: UnsafeMutableRawPointer {
+                    return UnsafeMutableRawPointer(mutating: self.pointer!.pointer(to: \\.\(name)))!
+                }
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                /// \(name) is a static stack with \(stackCapacity) capacity. You can access the stack through this property.
+                \(scopeText)var \(name): NRCStaticStack<\(type)> {
+                    return .createForSwiftNRCObject(self, \\.\(name)Pointer, Self.\(name)Capacity)
+                }
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                /// The amount of elements in \(name) (which is a static stack with \(stackCapacity) capacity).
+                /// Will return be between 0 and stackCapacity inclusive.
+                \(scopeText)var \(name)Count: Int {
+                    return \(name).count
+                }
+                @inline(__always)
+                @_alwaysEmitIntoClient
+                /// The capacity of \(name) (which is a static stack with \(stackCapacity) capacity).
+                \(scopeText)static var \(name)Capacity: Int {
+                    return \(stackCapacity)
+                }
+                """)
+            } else if let arrayCount = isArrayWithCount {
+                // Arrays get different methods
                 computedProperties.append("""
                 @inline(__always)
                 @_alwaysEmitIntoClient
