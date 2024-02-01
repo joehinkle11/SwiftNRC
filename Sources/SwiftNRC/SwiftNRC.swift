@@ -128,11 +128,14 @@ public struct NRCStaticStack<Element> {
         self.countPt.pointee = 0
     }
     
+    /// Allows you to set the value of the uninitialized buffer which stores the stack values.
     @_alwaysEmitIntoClient
     @inline(__always)
-    public func initialize(nilOutBuffer: () -> Void) {
+    public func initialize(nilOutRawBuffer: (_ rawBuffer: UnsafeMutableRawBufferPointer) -> Void) {
         self.countPt.pointee = 0
-        // todoo
+        let buffer = UnsafeMutableBufferPointer<Element>(start: self.firstElement, count: self.capacity)
+        let rawBuffer = UnsafeMutableRawBufferPointer(buffer)
+        nilOutRawBuffer(rawBuffer)
     }
     
     @_alwaysEmitIntoClient
