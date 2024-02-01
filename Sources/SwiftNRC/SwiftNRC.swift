@@ -229,10 +229,17 @@ public struct NRCStaticStack<Element> {
         return self.firstElement
     }
     
+    /// Is same as pointerToTop - 1
     @_alwaysEmitIntoClient
     @inline(__always)
     public var pointerToLast: UnsafeMutablePointer<Element> {
-        return self.firstElement.advanced(by: self.count - 1)
+        return self.pointerToTop.predecessor()
+    }
+    
+    @_alwaysEmitIntoClient
+    @inline(__always)
+    public var pointerToTop: UnsafeMutablePointer<Element> {
+        return self.firstElement.advanced(by: self.count)
     }
 }
 
