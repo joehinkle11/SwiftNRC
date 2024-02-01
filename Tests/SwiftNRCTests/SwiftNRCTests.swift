@@ -103,6 +103,29 @@ final class SwiftNRCTests: XCTestCase {
         XCTAssertEqual(exampleStaticStack.myStack.count, 0)
         exampleStaticStack.delete()
         XCTAssertEqual(ExampleStaticStack.__debug_swiftNRCZombies.count, 0)
+        
+        XCTAssertEqual(ExampleStaticStack2.__debug_swiftNRCZombies.count, 0)
+        XCTAssertEqual(ExampleStaticStack2.myStackCapacity, 2)
+        let exampleStaticStack2 = ExampleStaticStack2()
+        XCTAssertEqual(exampleStaticStack2.myStackCount, 0)
+        XCTAssertEqual(exampleStaticStack2.myStack.count, 0)
+        exampleStaticStack2.myStack.push(10)
+        XCTAssertEqual(exampleStaticStack2.myStackCount, 1)
+        XCTAssertEqual(exampleStaticStack2.myStack.count, 1)
+        XCTAssertTrue(exampleStaticStack2.myStack.push(9))
+        XCTAssertEqual(exampleStaticStack2.myStackCount, 2)
+        XCTAssertEqual(exampleStaticStack2.myStack.count, 2)
+        XCTAssertFalse(exampleStaticStack2.myStack.push(8))
+        XCTAssertEqual(exampleStaticStack2.myStackCount, 2)
+        XCTAssertEqual(exampleStaticStack2.myStack.count, 2)
+        XCTAssertEqual(exampleStaticStack2.before, "before string")
+        XCTAssertEqual(exampleStaticStack2.after, "after string")
+        XCTAssertEqual(exampleStaticStack2.myStack.pop(), 9)
+        XCTAssertEqual(exampleStaticStack2.myStack.count, 1)
+        XCTAssertEqual(exampleStaticStack2.myStack.pop(), 10)
+        XCTAssertEqual(exampleStaticStack2.myStack.count, 0)
+        exampleStaticStack2.delete()
+        XCTAssertEqual(ExampleStaticStack2.__debug_swiftNRCZombies.count, 0)
     }
     
     func testExampleFakeProperty() {
@@ -204,6 +227,26 @@ struct ExampleStaticArray: SwiftNRCObject {
     ]
 )
 struct ExampleStaticStack: SwiftNRCObject {
+    
+    init() {
+        self = .allocate()
+        self.initialize_before(to: "before string")
+        self.myStack.initialize()
+        self.initialize_after(to: "after string")
+    }
+    func delete() {
+        self.deallocate()
+    }
+}
+
+@NRC(
+    members: [
+        "let before" : String.self,
+        "var myStack": NRCStaticStack(Int.self, 2),
+        "let after" : String.self,
+    ]
+)
+struct ExampleStaticStack2: SwiftNRCObject {
     
     init() {
         self = .allocate()

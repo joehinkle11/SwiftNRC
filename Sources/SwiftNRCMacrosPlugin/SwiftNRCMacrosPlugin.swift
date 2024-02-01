@@ -233,7 +233,7 @@ public struct NRC: MemberMacro {
                 @_alwaysEmitIntoClient
                 /// \(name) is a static stack with \(stackCapacity) capacity. The layout is an Int for the count and then each element.
                 \(scopeText)var \(name)Pointer: UnsafeMutableRawPointer {
-                    return UnsafeMutableRawPointer(mutating: self.pointer!.pointer(to: \\.\(name)))!
+                    return UnsafeMutableRawPointer(mutating: self.pointer!.pointer(to: \\.\(name)Count))!
                 }
                 @inline(__always)
                 @_alwaysEmitIntoClient
@@ -348,6 +348,11 @@ public struct NRC: MemberMacro {
                         storedMembersTupleType += ", "
                     }
                     storedMembersTupleType += allStoredMembersNamesAndType.type
+                }
+            } else if let capacity = allStoredMembersNamesAndType.isStackWithCapacity {
+                storedMembersTupleType += allStoredMembersNamesAndType.name + "Count: Int"
+                for _ in 0..<capacity {
+                    storedMembersTupleType += ", " + allStoredMembersNamesAndType.type
                 }
             } else {
                 if allStoredMembersNamesAndTypes.count == 1 {
